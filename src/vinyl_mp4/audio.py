@@ -209,3 +209,39 @@ def get_shader_index(filename: str, num_shaders: int) -> int:
     h = hashlib.md5(filename.encode()).hexdigest()
     # Use bytes 8-16 (different from hue_offset which uses 0-8)
     return int(h[8:16], 16) % num_shaders
+
+
+def get_vinyl_scale(filename: str) -> float:
+    """Hash filename to get deterministic vinyl scale factor.
+
+    Uses different bits of the MD5 hash than other hash functions.
+    Scale ranges from 1.0 (base size) to 2.0 (double size).
+
+    Args:
+        filename: The filename (not full path) to hash.
+
+    Returns:
+        Float in range 1.0-2.0 representing scale multiplier.
+    """
+    h = hashlib.md5(filename.encode()).hexdigest()
+    # Use bytes 16-24 (different from hue_offset and shader_index)
+    normalized = int(h[16:24], 16) / 0xFFFFFFFF
+    return 1.0 + normalized  # Range 1.0 to 2.0
+
+
+def get_vinyl_offset_x(filename: str) -> float:
+    """Hash filename to get deterministic vinyl horizontal offset.
+
+    Uses different bits of the MD5 hash than other hash functions.
+    Offset is in vinyl radii, ranging from -1.0 (left) to 1.0 (right).
+
+    Args:
+        filename: The filename (not full path) to hash.
+
+    Returns:
+        Float in range -1.0 to 1.0 representing horizontal offset.
+    """
+    h = hashlib.md5(filename.encode()).hexdigest()
+    # Use bytes 24-32 (different from other hash functions)
+    normalized = int(h[24:32], 16) / 0xFFFFFFFF
+    return normalized * 2.0 - 1.0  # Range -1.0 to 1.0

@@ -314,16 +314,27 @@ class VinylRenderer:
     - Shader class-based rendering
     """
 
-    def __init__(self, width: int, height: int, shader_index: int = 0):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        shader_index: int = 0,
+        vinyl_scale: float = 1.0,
+        vinyl_offset_x: float = 0.0,
+    ):
         """Initialize the renderer with given dimensions.
 
         Args:
             width: Output frame width in pixels.
             height: Output frame height in pixels.
             shader_index: Index of background shader to use (wraps around).
+            vinyl_scale: Vinyl size multiplier (1.0 to 2.0).
+            vinyl_offset_x: Horizontal offset in vinyl radii (-1.0 to 1.0).
         """
         self.width = width
         self.height = height
+        self.vinyl_scale = vinyl_scale
+        self.vinyl_offset_x = vinyl_offset_x
         self.frame_size = width * height * 4  # RGBA
 
         # Create headless OpenGL context with explicit backend selection
@@ -379,10 +390,14 @@ class VinylRenderer:
         self._vinyl_u_time = self.vinyl_program["u_time"]
         self._vinyl_u_resolution = self.vinyl_program["u_resolution"]
         self._vinyl_u_label_texture = self.vinyl_program["u_label_texture"]
+        self._vinyl_u_scale = self.vinyl_program["u_vinyl_scale"]
+        self._vinyl_u_offset_x = self.vinyl_program["u_vinyl_offset_x"]
 
         # Set static uniforms once
         self._vinyl_u_resolution.value = (float(width), float(height))
         self._vinyl_u_label_texture.value = 0
+        self._vinyl_u_scale.value = self.vinyl_scale
+        self._vinyl_u_offset_x.value = self.vinyl_offset_x
 
         # Create label texture
         self.label_size = 1024

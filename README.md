@@ -82,6 +82,8 @@ Other Options:
   --limit SECONDS     Limit output to first N seconds of audio
   --name TEXT         Track name to display on vinyl label (default: filename)
   --frame SECONDS     Render a single frame at this time to PNG (for testing)
+  --shader NAME       Background shader (FBM Warp, Melted Sphere) - default: auto-selected by filename
+  --color NAME        Base color for shader (red, orange, yellow, lime, green, teal, cyan, sky, blue, indigo, purple, violet, magenta, pink)
   --help              Show help message
 ```
 
@@ -127,6 +129,24 @@ uv run vinyl-mp4 song.mp3 --frame 5.5 -o preview.png
 uv run vinyl-mp4 song.mp3 --fps 24
 ```
 
+**Choose a specific shader:**
+```bash
+# Use the FBM Warp shader (flowing fractal patterns)
+uv run vinyl-mp4 song.mp3 --shader fbm
+
+# Use the Melted Sphere shader (raymarched iridescent blob)
+uv run vinyl-mp4 song.mp3 --shader melted
+```
+
+**Choose a color scheme:**
+```bash
+# Purple color scheme
+uv run vinyl-mp4 song.mp3 --color purple
+
+# Combine shader and color
+uv run vinyl-mp4 song.mp3 --shader fbm --color cyan
+```
+
 ## How It Works
 
 1. **Audio Analysis** - Loads the MP3, extracts ID3 metadata (title/artist), and computes per-frame energy in two frequency bands:
@@ -167,8 +187,13 @@ vinyl-mp4/
 │       ├── cli.py           # Command-line interface
 │       ├── audio.py         # Audio loading and analysis
 │       ├── renderer.py      # OpenGL rendering
-│       ├── shaders.py       # GLSL shader code
-│       └── encoder.py       # FFmpeg video encoding
+│       ├── encoder.py       # FFmpeg video encoding
+│       └── shaders/         # GLSL shader code
+│           ├── __init__.py  # Shader registry
+│           ├── base.py      # BaseShader abstract class
+│           ├── fbm_warp.py  # Fractal Brownian motion shader
+│           ├── melted_sphere.py  # Raymarched sphere shader
+│           └── vinyl.py     # Vinyl record overlay shader
 └── tests/
     ├── conftest.py          # Test fixtures
     ├── test_audio.py

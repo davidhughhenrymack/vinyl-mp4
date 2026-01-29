@@ -14,11 +14,20 @@ from vinyl_mp4.audio import (
     compute_energy,
     get_hue_offset,
     get_shader_index,
+    get_vinyl_scale,
+    get_vinyl_offset_x,
     AudioEnergy,
 )
 from vinyl_mp4.encoder import VideoEncoder, check_ffmpeg, FFmpegNotFoundError
 from vinyl_mp4.renderer import VinylRenderer, create_label_texture
-from vinyl_mp4.shaders import get_num_shaders
+from vinyl_mp4.shaders import (
+    get_num_shaders,
+    get_shader_by_name,
+    get_shader_names,
+    get_color_names,
+    get_hue_from_color,
+    SHADER_REGISTRY,
+)
 
 
 def render_single_frame(args, input_path: Path) -> int:
@@ -78,15 +87,45 @@ def render_single_frame(args, input_path: Path) -> int:
         f"  Frame {frame_idx} at {frame_time:.2f}s: low={energy_low:.3f}, mid={energy_mid:.3f}, high={energy_high:.3f}"
     )
 
-    # Get hue offset and shader index
-    hue_offset = get_hue_offset(input_path.name)
-    shader_index = get_shader_index(input_path.name, get_num_shaders())
-    print(f"  Hue offset: {hue_offset:.3f}")
-    print(f"  Shader index: {shader_index}")
+    # Get hue offset (from --color or hash of filename)
+    if args.color:
+        try:
+            hue_offset = get_hue_from_color(args.color)
+            print(f"  Color: {args.color} (hue={hue_offset:.3f})")
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    else:
+        hue_offset = get_hue_offset(input_path.name)
+        print(f"  Hue offset: {hue_offset:.3f}")
+
+    # Get shader (from --shader or hash of filename)
+    if args.shader:
+        try:
+            shader_class = get_shader_by_name(args.shader)
+            shader_index = SHADER_REGISTRY.index(shader_class)
+            print(f"  Shader: {args.shader}")
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    else:
+        shader_index = get_shader_index(input_path.name, get_num_shaders())
+        print(f"  Shader index: {shader_index}")
+
+    # Get vinyl scale and position from filename hash
+    vinyl_scale = get_vinyl_scale(input_path.name)
+    vinyl_offset_x = get_vinyl_offset_x(input_path.name)
+    print(f"  Vinyl scale: {vinyl_scale:.2f}x, offset: {vinyl_offset_x:.2f}")
 
     # Initialize renderer
     print(f"Initializing renderer ({args.width}x{args.height})...")
-    renderer = VinylRenderer(args.width, args.height, shader_index=shader_index)
+    renderer = VinylRenderer(
+        args.width,
+        args.height,
+        shader_index=shader_index,
+        vinyl_scale=vinyl_scale,
+        vinyl_offset_x=vinyl_offset_x,
+    )
     print(f"  Using shader: {renderer.bg_shader.name}")
 
     # Create and set label texture
@@ -200,6 +239,18 @@ def main() -> int:
         default=None,
         help="Render a single frame at this time (seconds) to PNG instead of video",
     )
+    parser.add_argument(
+        "--shader",
+        type=str,
+        default=None,
+        help=f"Background shader to use (available: {', '.join(get_shader_names())})",
+    )
+    parser.add_argument(
+        "--color",
+        type=str,
+        default=None,
+        help=f"Base color for shader (available: {', '.join(get_color_names())})",
+    )
 
     args = parser.parse_args()
 
@@ -297,15 +348,45 @@ def main() -> int:
         num_frames = len(energy.total)
         print(f"  Frames to render: {num_frames}")
 
-        # Get hue offset and shader index from filename
-        hue_offset = get_hue_offset(input_path.name)
-        shader_index = get_shader_index(input_path.name, get_num_shaders())
-        print(f"  Hue offset: {hue_offset:.3f}")
-        print(f"  Shader index: {shader_index}")
+        # Get hue offset (from --color or hash of filename)
+        if args.color:
+            try:
+                hue_offset = get_hue_from_color(args.color)
+                print(f"  Color: {args.color} (hue={hue_offset:.3f})")
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
+        else:
+            hue_offset = get_hue_offset(input_path.name)
+            print(f"  Hue offset: {hue_offset:.3f}")
+
+        # Get shader (from --shader or hash of filename)
+        if args.shader:
+            try:
+                shader_class = get_shader_by_name(args.shader)
+                shader_index = SHADER_REGISTRY.index(shader_class)
+                print(f"  Shader: {args.shader}")
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
+        else:
+            shader_index = get_shader_index(input_path.name, get_num_shaders())
+            print(f"  Shader index: {shader_index}")
+
+        # Get vinyl scale and position from filename hash
+        vinyl_scale = get_vinyl_scale(input_path.name)
+        vinyl_offset_x = get_vinyl_offset_x(input_path.name)
+        print(f"  Vinyl scale: {vinyl_scale:.2f}x, offset: {vinyl_offset_x:.2f}")
 
         # Initialize renderer
         print(f"Initializing renderer ({args.width}x{args.height})...")
-        renderer = VinylRenderer(args.width, args.height, shader_index=shader_index)
+        renderer = VinylRenderer(
+            args.width,
+            args.height,
+            shader_index=shader_index,
+            vinyl_scale=vinyl_scale,
+            vinyl_offset_x=vinyl_offset_x,
+        )
         print(f"  Using shader: {renderer.bg_shader.name}")
 
         # Create and set label texture with track name for curved text

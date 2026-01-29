@@ -101,8 +101,8 @@ vec3 irri(float hue) {
 float melted(vec3 samplePoint, float time, float distortAmt, out float aspect) {
     float y = samplePoint.y;
     
-    // Bass makes the wobble more intense
-    float wobbleAmp = 1.0 + distortAmt * 2.5;
+    // Bass makes the wobble more intense (gentle response)
+    float wobbleAmp = 1.0 + distortAmt * 0.8;
     
     float angle = 0.0;
     angle += sin(y + time) * wobbleAmp;
@@ -114,11 +114,11 @@ float melted(vec3 samplePoint, float time, float distortAmt, out float aspect) {
     angle = angle * PI + TAU;
     
     // Distortion amount strongly modulated by bass
-    float dist = 0.1 * (1.0 + distortAmt * 3.0);
+    float dist = 0.1 * (1.0 + distortAmt * 1.0);
     vec3 offset = vec3(sin(angle), 0.0, cos(angle)) * dist;
     
     // Scale sphere size with bass (pulsing effect)
-    float scale = 1.0 - distortAmt * 0.15;
+    float scale = 1.0 - distortAmt * 0.05;
     return sdSphere(samplePoint * scale + offset);
 }
 

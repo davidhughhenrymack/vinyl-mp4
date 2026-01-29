@@ -20,15 +20,22 @@ VINYL_FRAGMENT_SHADER = """
 uniform float u_time;
 uniform vec2 u_resolution;
 uniform sampler2D u_label_texture;
+uniform float u_vinyl_scale;      // Scale multiplier (1.0 to 2.0)
+uniform float u_vinyl_offset_x;   // Horizontal offset (-1.0 to 1.0, in vinyl radii)
 
 in vec2 v_uv;
 out vec4 fragColor;
 
 const float PI = 3.14159265359;
-const float VINYL_RADIUS = 0.35;
-const float LABEL_RADIUS = 0.26;  // 3/4 of vinyl radius for large label
-const float HOLE_RADIUS = 0.012;
+const float BASE_VINYL_RADIUS = 0.35;
+const float LABEL_RATIO = 0.743;  // Label is ~74% of vinyl radius
+const float HOLE_RATIO = 0.034;   // Hole is ~3.4% of vinyl radius
 const float RPM = 33.0;
+
+// Anti-aliasing edge width (in UV units, relative to screen)
+float aaWidth() {
+    return 1.5 / min(u_resolution.x, u_resolution.y);
+}
 
 // High quality hash functions
 float hash(vec2 p) {
@@ -120,27 +127,22 @@ float paperTexture(vec2 uv, float time) {
 }
 
 void main() {
-    // Center the coordinates
-    vec2 center = vec2(0.5);
+    // Compute scaled radii
+    float VINYL_RADIUS = BASE_VINYL_RADIUS * u_vinyl_scale;
+    float LABEL_RADIUS = VINYL_RADIUS * LABEL_RATIO;
+    float HOLE_RADIUS = VINYL_RADIUS * HOLE_RATIO;
+    
+    // Center the coordinates with horizontal offset
+    // Offset is in vinyl radii units, mapped to screen space
+    float aspect = u_resolution.x / u_resolution.y;
+    vec2 center = vec2(0.5 + u_vinyl_offset_x * VINYL_RADIUS / aspect, 0.5);
     vec2 uv = v_uv - center;
     
     // Correct for aspect ratio
-    float aspect = u_resolution.x / u_resolution.y;
     uv.x *= aspect;
     
     float dist = length(uv);
-    
-    // Outside vinyl - transparent
-    if (dist > VINYL_RADIUS) {
-        fragColor = vec4(0.0);
-        return;
-    }
-    
-    // Center hole
-    if (dist < HOLE_RADIUS) {
-        fragColor = vec4(0.0);
-        return;
-    }
+    float aa = aaWidth();
     
     // Calculate rotation angle (33 RPM = 33 rotations per 60 seconds)
     float rotation = u_time * RPM / 60.0 * 2.0 * PI;
@@ -153,24 +155,29 @@ void main() {
         uv.x * sin_r + uv.y * cos_r
     );
     
-    // Label area
-    if (dist < LABEL_RADIUS) {
-        // Map to texture coordinates
-        vec2 label_uv = (rotated_uv / LABEL_RADIUS) * 0.5 + 0.5;
-        vec4 label_color = texture(u_label_texture, label_uv);
-        
-        // Add paper texture and grain to label
-        float paper = paperTexture(label_uv, u_time);
-        label_color.rgb += paper;
-        
-        // Slight color variation in paper (warmer spots)
-        label_color.r += fbm(label_uv * 30.0, 2) * 0.01;
-        
-        fragColor = label_color;
+    // Anti-aliased edge masks
+    float vinylMask = 1.0 - smoothstep(VINYL_RADIUS - aa, VINYL_RADIUS + aa, dist);
+    float holeMask = smoothstep(HOLE_RADIUS - aa, HOLE_RADIUS + aa, dist);
+    float labelMask = 1.0 - smoothstep(LABEL_RADIUS - aa, LABEL_RADIUS + aa, dist);
+    
+    // Outside vinyl - fully transparent (but still compute for AA blending)
+    if (dist > VINYL_RADIUS + aa) {
+        fragColor = vec4(0.0);
         return;
     }
     
-    // Vinyl area with grooves
+    // Calculate label color
+    vec2 label_uv = (rotated_uv / LABEL_RADIUS) * 0.5 + 0.5;
+    vec4 label_color = texture(u_label_texture, label_uv);
+    
+    // Add paper texture and grain to label
+    float paper = paperTexture(label_uv, u_time);
+    label_color.rgb += paper;
+    
+    // Slight color variation in paper (warmer spots)
+    label_color.r += fbm(label_uv * 30.0, 2) * 0.01;
+    
+    // Calculate vinyl color with grooves
     float angle = atan(rotated_uv.y, rotated_uv.x);
     
     // Create groove effect - higher frequency for narrower grooves
@@ -209,7 +216,15 @@ void main() {
     // Film grain on vinyl
     vinyl_color += filmGrain(v_uv, u_time, 0.015);
     
-    fragColor = vec4(vinyl_color, 1.0);
+    // Blend between label and vinyl with anti-aliasing
+    vec3 finalColor = mix(vinyl_color, label_color.rgb, labelMask * label_color.a);
+    float finalAlpha = mix(1.0, label_color.a, labelMask);
+    
+    // Apply vinyl outer edge and hole anti-aliasing
+    finalAlpha *= vinylMask * holeMask;
+    
+    // Pre-multiply alpha for correct blending
+    fragColor = vec4(finalColor * finalAlpha, finalAlpha);
 }
 """
 

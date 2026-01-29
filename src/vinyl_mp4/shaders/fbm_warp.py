@@ -97,36 +97,33 @@ float noise(vec2 p) {
 // Rotation matrix for FBM
 const mat2 mtx = mat2(0.80, 0.60, -0.60, 0.80);
 
-// Fractal Brownian Motion - with amplitude and high-freq shimmer modulation
-float fbm(vec2 p, float time, float amp_mod, float shimmer) {
+// Fractal Brownian Motion - with amplitude modulation
+float fbm(vec2 p, float time, float amp_mod) {
     float f = 0.0;
-    
-    // Shimmer speeds up fine detail animation on hi-hats/cymbals
-    float fast_time = time * (1.0 + shimmer * 3.0);
 
     f += 0.500000 * (1.0 + amp_mod * 0.5) * noise(p + time); p = mtx * p * 2.02;
-    f += 0.031250 * noise(p + fast_time * 0.5); p = mtx * p * 2.01;
+    f += 0.031250 * noise(p + time * 0.5); p = mtx * p * 2.01;
     f += 0.250000 * noise(p); p = mtx * p * 2.03;
-    f += 0.125000 * noise(p + fast_time * 0.3); p = mtx * p * 2.01;
-    f += 0.062500 * noise(p + fast_time * 0.7); p = mtx * p * 2.04;
-    f += 0.015625 * noise(p + sin(fast_time));
+    f += 0.125000 * noise(p + time * 0.3); p = mtx * p * 2.01;
+    f += 0.062500 * noise(p + time * 0.7); p = mtx * p * 2.04;
+    f += 0.015625 * noise(p + sin(time));
 
     return f / 0.96875;
 }
 
-// Domain warping pattern with warp intensity and shimmer modulation
-float pattern(vec2 p, float time, float amp_mod, float warp_intensity, float shimmer) {
+// Domain warping pattern with warp intensity modulation
+float pattern(vec2 p, float time, float amp_mod, float warp_intensity) {
     // Mid frequency controls domain warp complexity
     float warp = 0.8 + warp_intensity * 0.4;  // Range 0.8 to 1.2
-    vec2 q = p + fbm(p, time, amp_mod, shimmer) * warp;
-    vec2 r = q + fbm(q, time, amp_mod, shimmer) * warp;
-    return fbm(r, time, amp_mod, shimmer);
+    vec2 q = p + fbm(p, time, amp_mod) * warp;
+    vec2 r = q + fbm(q, time, amp_mod) * warp;
+    return fbm(r, time, amp_mod);
 }
 
 // Get color at a UV position (for blur sampling)
-vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float shimmer, float master_hue) {
+vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float master_hue) {
     vec2 scaled_uv = uv * scale;
-    float shade = pattern(scaled_uv, time, amp_mod, warp_mod, shimmer);
+    float shade = pattern(scaled_uv, time, amp_mod, warp_mod);
     return harmonious_colormap(shade, master_hue);
 }
 
@@ -139,13 +136,12 @@ void main() {
     uv.x *= u_resolution.x / u_resolution.y;
     
     // Low frequency (bass) controls pattern scale - zoom anchored at center
-    float scale = 2.8 + u_energy_low * 0.4;  // Stronger bass response
+    float scale = 2.8 + u_energy_low * 0.15;  // Gentle bass response
     
     // Master hue: base offset + slow drift over time (30 min cycle)
-    float master_hue = fract(u_hue_offset + sin(u_time * 3.14159 / 1800.0) * 0.15);
-    
-    // High frequency controls shimmer/turbulence in fine details
-    float shimmer = u_energy_high;
+    // High frequency slightly shifts hue for sparkle on hi-hats/cymbals
+    float hue_shift = u_energy_high * 0.08;  // Subtle hue shift on treble
+    float master_hue = fract(u_hue_offset + sin(u_time * 3.14159 / 1800.0) * 0.15 + hue_shift);
     
     // Blur effect controlled by low frequency energy
     float blur_radius = u_energy_low * 0.025;  // Stronger bass blur
@@ -157,30 +153,30 @@ void main() {
         float total_weight = 0.0;
         
         // Center sample (highest weight)
-        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * 0.25;
+        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue) * 0.25;
         total_weight += 0.25;
         
         // Cardinal directions
         float w1 = 0.125;
-        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
-        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
-        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
-        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
         total_weight += w1 * 4.0;
         
         // Diagonal directions (lower weight)
         float w2 = 0.0625;
         float diag = blur_radius * 0.707;
-        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
-        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
-        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
-        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
         total_weight += w2 * 4.0;
         
         rgb /= total_weight;
     } else {
         // No blur - single sample
-        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, shimmer, master_hue);
+        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue);
     }
     
     fragColor = vec4(rgb, 1.0);
@@ -191,11 +187,11 @@ void main() {
 @register_shader
 class FbmWarpShader(BaseShader):
     """FBM Warp shader - fractal Brownian motion with domain warping.
-    
+
     Audio reactivity:
     - Low frequency (bass): controls pattern scale and blur
     - Mid frequency: controls domain warp complexity
-    - High frequency: controls shimmer/turbulence in fine details
+    - High frequency: slightly shifts hue for sparkle effect
     """
 
     @property
