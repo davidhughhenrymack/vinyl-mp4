@@ -73,8 +73,13 @@ class BaseShader(ABC):
         energy_high: float,
         hue_offset: float,
         resolution: tuple[int, int],
+        contrast: float = 1.0,
     ) -> None:
-        """Set shader-specific uniforms for the main pass."""
+        """Set shader-specific uniforms for the main pass.
+
+        Args:
+            contrast: Color contrast level (0.7-1.3), only used by FBM Warp shader.
+        """
         pass
 
     def set_buffer_uniforms(

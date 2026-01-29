@@ -175,20 +175,24 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
 
 
 def get_hue_offset(filename: str) -> float:
-    """Hash filename to get deterministic hue offset 0.0-1.0.
+    """Hash filename to get deterministic hue from allowed colors.
 
-    Uses MD5 hash of the filename to generate a consistent hue offset
-    for the background color palette. Same filename always produces
+    Uses MD5 hash of the filename to select from the list of allowed
+    colors for random selection. Same filename always produces
     the same color scheme.
 
     Args:
         filename: The filename (not full path) to hash.
 
     Returns:
-        Float in range 0.0-1.0 representing hue rotation.
+        Float in range 0.0-1.0 representing hue value from allowed colors.
     """
+    from vinyl_mp4.shaders import get_random_color_hues
+
+    allowed_hues = get_random_color_hues()
     h = hashlib.md5(filename.encode()).hexdigest()
-    return int(h[:8], 16) / 0xFFFFFFFF
+    index = int(h[:8], 16) % len(allowed_hues)
+    return allowed_hues[index]
 
 
 def get_shader_index(filename: str, num_shaders: int) -> int:
@@ -245,3 +249,22 @@ def get_vinyl_offset_x(filename: str) -> float:
     # Use bytes 24-32 (different from other hash functions)
     normalized = int(h[24:32], 16) / 0xFFFFFFFF
     return normalized * 2.0 - 1.0  # Range -1.0 to 1.0
+
+
+def get_contrast(filename: str) -> float:
+    """Hash filename to get deterministic contrast level.
+
+    Uses a separate hash (prefixed filename) to ensure independent
+    randomization from other parameters. Contrast ranges from 0.7
+    (softer, more muted) to 1.3 (stronger, more vivid contrast).
+
+    Args:
+        filename: The filename (not full path) to hash.
+
+    Returns:
+        Float in range 0.7-1.3 representing contrast multiplier.
+    """
+    # Use different hash by prefixing to ensure independent randomization
+    h = hashlib.md5(f"contrast-{filename}".encode()).hexdigest()
+    normalized = int(h[:8], 16) / 0xFFFFFFFF
+    return 0.7 + normalized * 0.6  # Range 0.7 to 1.3

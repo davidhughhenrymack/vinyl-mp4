@@ -16,6 +16,7 @@ from vinyl_mp4.audio import (
     get_shader_index,
     get_vinyl_scale,
     get_vinyl_offset_x,
+    get_contrast,
     AudioEnergy,
 )
 from vinyl_mp4.encoder import VideoEncoder, check_ffmpeg, FFmpegNotFoundError
@@ -115,7 +116,9 @@ def render_single_frame(args, input_path: Path) -> int:
     # Get vinyl scale and position from filename hash
     vinyl_scale = get_vinyl_scale(input_path.name)
     vinyl_offset_x = get_vinyl_offset_x(input_path.name)
+    contrast = get_contrast(input_path.name)
     print(f"  Vinyl scale: {vinyl_scale:.2f}x, offset: {vinyl_offset_x:.2f}")
+    print(f"  Contrast: {contrast:.2f}")
 
     # Initialize renderer
     print(f"Initializing renderer ({args.width}x{args.height})...")
@@ -125,11 +128,13 @@ def render_single_frame(args, input_path: Path) -> int:
         shader_index=shader_index,
         vinyl_scale=vinyl_scale,
         vinyl_offset_x=vinyl_offset_x,
+        contrast=contrast,
     )
     print(f"  Using shader: {renderer.bg_shader.name}")
 
     # Create and set label texture
-    label_img = create_label_texture(title, artist, track_name=track_name)
+    # Track name shown in bold center, title ("CRATE1 2025") on the rim
+    label_img = create_label_texture(track_name, artist, track_name=title)
     renderer.set_label_texture(label_img)
 
     # Render frame
@@ -376,7 +381,9 @@ def main() -> int:
         # Get vinyl scale and position from filename hash
         vinyl_scale = get_vinyl_scale(input_path.name)
         vinyl_offset_x = get_vinyl_offset_x(input_path.name)
+        contrast = get_contrast(input_path.name)
         print(f"  Vinyl scale: {vinyl_scale:.2f}x, offset: {vinyl_offset_x:.2f}")
+        print(f"  Contrast: {contrast:.2f}")
 
         # Initialize renderer
         print(f"Initializing renderer ({args.width}x{args.height})...")
@@ -386,11 +393,12 @@ def main() -> int:
             shader_index=shader_index,
             vinyl_scale=vinyl_scale,
             vinyl_offset_x=vinyl_offset_x,
+            contrast=contrast,
         )
         print(f"  Using shader: {renderer.bg_shader.name}")
 
-        # Create and set label texture with track name for curved text
-        label_img = create_label_texture(title, artist, track_name=track_name)
+        # Create and set label texture with track name in bold center, title on rim
+        label_img = create_label_texture(track_name, artist, track_name=title)
         renderer.set_label_texture(label_img)
 
         # Initialize encoder

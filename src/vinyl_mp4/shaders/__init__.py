@@ -23,6 +23,12 @@ COLOR_HUES: dict[str, float] = {
     "pink": 0.92,
 }
 
+# Colors allowed for random/auto selection (excludes lime and teal)
+RANDOM_COLORS: list[str] = [
+    "red", "orange", "yellow", "green", "cyan", "sky",
+    "blue", "indigo", "purple", "violet", "magenta", "pink",
+]
+
 
 def get_shader_class(index: int) -> type[BaseShader]:
     """Get shader class by index (wraps around)."""
@@ -57,6 +63,11 @@ def get_color_names() -> list[str]:
     return list(COLOR_HUES.keys())
 
 
+def get_random_color_hues() -> list[float]:
+    """Return list of hue values allowed for random selection."""
+    return [COLOR_HUES[c] for c in RANDOM_COLORS]
+
+
 def get_hue_from_color(color: str) -> float:
     """Get hue value (0-1) from color name."""
     color_lower = color.lower()
@@ -85,11 +96,13 @@ __all__ = [
     "ShaderPass",
     "SHADER_REGISTRY",
     "COLOR_HUES",
+    "RANDOM_COLORS",
     "get_shader_class",
     "get_shader_by_name",
     "get_shader_names",
     "get_num_shaders",
     "get_color_names",
+    "get_random_color_hues",
     "get_hue_from_color",
     "register_shader",
     "FbmWarpShader",

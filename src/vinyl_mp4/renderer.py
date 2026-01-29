@@ -231,14 +231,23 @@ def create_label_texture(
             font=font_main,
         )
 
-    # Draw title (right side of center) - uppercase, left-aligned with word wrap
+    # Draw title (right side of center) - uppercase, left-aligned, one word per line
+    # Split on whitespace and hyphens, keeping hyphens attached
     title_text = title.upper()
-    title_lines = wrap_text(title_text, font_main, max_text_width)
+    # Split by spaces first, then split hyphenated words
+    title_words = []
+    for part in title_text.split():
+        if "-" in part:
+            # Split hyphenated words, e.g. "OUT-OF-MY-HEAD" -> ["OUT", "OF", "MY", "HEAD"]
+            title_words.extend(part.split("-"))
+        else:
+            title_words.append(part)
+
     title_x = int(size * 0.57)
     title_y = int(size * 0.38)
-    for i, line in enumerate(title_lines):
+    for i, word in enumerate(title_words):
         draw.text(
-            (title_x, title_y + i * line_height), line, fill=text_dark, font=font_main
+            (title_x, title_y + i * line_height), word, fill=text_dark, font=font_main
         )
 
     # Draw "DM" logo - horizontally centered, above the vertical stripe (after OpenGL flip)
@@ -321,6 +330,7 @@ class VinylRenderer:
         shader_index: int = 0,
         vinyl_scale: float = 1.0,
         vinyl_offset_x: float = 0.0,
+        contrast: float = 1.0,
     ):
         """Initialize the renderer with given dimensions.
 
@@ -330,11 +340,13 @@ class VinylRenderer:
             shader_index: Index of background shader to use (wraps around).
             vinyl_scale: Vinyl size multiplier (1.0 to 2.0).
             vinyl_offset_x: Horizontal offset in vinyl radii (-1.0 to 1.0).
+            contrast: Color contrast level (0.7-1.3), only used by FBM Warp shader.
         """
         self.width = width
         self.height = height
         self.vinyl_scale = vinyl_scale
         self.vinyl_offset_x = vinyl_offset_x
+        self.contrast = contrast
         self.frame_size = width * height * 4  # RGBA
 
         # Create headless OpenGL context with explicit backend selection
@@ -489,6 +501,7 @@ class VinylRenderer:
             energy_high,
             hue_offset,
             (self.width, self.height),
+            self.contrast,
         )
         self.bg_vao.render(moderngl.TRIANGLE_STRIP)
 

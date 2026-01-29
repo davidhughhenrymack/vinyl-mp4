@@ -31,6 +31,7 @@ uniform float u_energy_low;   // Sub-bass/kick energy (0-1) <100Hz
 uniform float u_energy_mid;   // Bass/vocals/instruments energy (0-1) 100-4000Hz
 uniform float u_energy_high;  // Hi-hat/treble energy (0-1) >4000Hz
 uniform float u_hue_offset;
+uniform float u_contrast;     // Color contrast level (0.7-1.3)
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -45,33 +46,41 @@ vec3 hsv2rgb(vec3 c) {
 // Harmonious colormap - stays within narrow hue band
 // Maps pattern value (0-1) to dark -> saturated -> light
 // Uses master hue as the center of the palette
-vec3 harmonious_colormap(float x, float master_hue) {
+// Contrast (0.7-1.3) affects saturation and value ranges
+vec3 harmonious_colormap(float x, float master_hue, float contrast) {
     // Three-point gradient: dark -> saturated -> bright
     // Heavily biased toward saturated and bright colors
     float sat, val, hue_shift;
     
+    // Contrast affects how much saturation and value vary
+    // Higher contrast = darker darks, more saturated mids, brighter brights
+    float dark_val_min = mix(0.45, 0.25, (contrast - 0.7) / 0.6);  // 0.45 at low, 0.25 at high
+    float dark_val_max = mix(0.60, 0.50, (contrast - 0.7) / 0.6);  // 0.60 at low, 0.50 at high
+    float sat_boost = (contrast - 1.0) * 0.15;  // Boost saturation with contrast
+    
     if (x < 0.2) {
         // Dark accent region (small portion) - shifted hue for contrast
         float t = x / 0.2;
-        sat = mix(0.75, 0.95, t);
-        val = mix(0.35, 0.55, t);
-        hue_shift = -0.08;  // Shift darks toward complementary
+        sat = clamp(mix(0.75, 0.95, t) + sat_boost, 0.0, 1.0);
+        val = mix(dark_val_min, dark_val_max, t);
+        hue_shift = -0.08 * contrast;  // Shift darks toward complementary (more with higher contrast)
     } else if (x < 0.5) {
         // Saturated region (punchy colors)
         float t = (x - 0.2) / 0.3;
-        sat = mix(0.95, 1.0, t);
-        val = mix(0.55, 0.8, t);
-        hue_shift = mix(-0.08, 0.0, t);  // Transition back to main hue
+        sat = clamp(mix(0.95, 1.0, t) + sat_boost, 0.0, 1.0);
+        val = mix(dark_val_max, 0.8, t);
+        hue_shift = mix(-0.08 * contrast, 0.0, t);  // Transition back to main hue
     } else {
         // Highlight region (bright and vibrant)
         float t = (x - 0.5) / 0.5;
-        sat = mix(1.0, 0.6, t);
+        float highlight_sat = mix(0.7, 0.5, (contrast - 0.7) / 0.6);  // Less sat drop at high contrast
+        sat = clamp(mix(1.0, highlight_sat, t) + sat_boost * 0.5, 0.0, 1.0);
         val = mix(0.8, 1.0, t);
-        hue_shift = (x - 0.5) * 0.06;  // Slight shift toward warm
+        hue_shift = (x - 0.5) * 0.06 * contrast;  // Slight shift toward warm
     }
     
-    // Narrow hue variation around master hue
-    float hue = fract(master_hue + hue_shift + (x - 0.5) * 0.06);
+    // Narrow hue variation around master hue (more variation with higher contrast)
+    float hue = fract(master_hue + hue_shift + (x - 0.5) * 0.06 * contrast);
     
     return hsv2rgb(vec3(hue, sat, val));
 }
@@ -121,10 +130,10 @@ float pattern(vec2 p, float time, float amp_mod, float warp_intensity) {
 }
 
 // Get color at a UV position (for blur sampling)
-vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float master_hue) {
+vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float master_hue, float contrast) {
     vec2 scaled_uv = uv * scale;
     float shade = pattern(scaled_uv, time, amp_mod, warp_mod);
-    return harmonious_colormap(shade, master_hue);
+    return harmonious_colormap(shade, master_hue, contrast);
 }
 
 void main() {
@@ -153,30 +162,30 @@ void main() {
         float total_weight = 0.0;
         
         // Center sample (highest weight)
-        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue) * 0.25;
+        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * 0.25;
         total_weight += 0.25;
         
         // Cardinal directions
         float w1 = 0.125;
-        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
-        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
-        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
-        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w1;
+        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w1;
+        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w1;
+        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w1;
         total_weight += w1 * 4.0;
         
         // Diagonal directions (lower weight)
         float w2 = 0.0625;
         float diag = blur_radius * 0.707;
-        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
-        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
-        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
-        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w2;
+        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w2;
+        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w2;
+        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast) * w2;
         total_weight += w2 * 4.0;
         
         rgb /= total_weight;
     } else {
         // No blur - single sample
-        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue);
+        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue, u_contrast);
     }
     
     fragColor = vec4(rgb, 1.0);
@@ -214,6 +223,7 @@ class FbmWarpShader(BaseShader):
         energy_high: float,
         hue_offset: float,
         resolution: tuple[int, int],
+        contrast: float = 1.0,
     ) -> None:
         """Set shader uniforms."""
         program["u_time"].value = time
@@ -222,3 +232,4 @@ class FbmWarpShader(BaseShader):
         program["u_energy_mid"].value = energy_mid
         program["u_energy_high"].value = energy_high
         program["u_hue_offset"].value = hue_offset
+        program["u_contrast"].value = contrast

@@ -266,8 +266,9 @@ class MeltedSphereShader(BaseShader):
         energy_high: float,
         hue_offset: float,
         resolution: tuple[int, int],
+        contrast: float = 1.0,
     ) -> None:
-        """Set shader uniforms."""
+        """Set shader uniforms (contrast is ignored for Melted Sphere)."""
         program["u_time"].value = time
         program["u_resolution"].value = resolution
         program["u_energy_low"].value = energy_low
