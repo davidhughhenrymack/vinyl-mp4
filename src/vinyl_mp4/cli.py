@@ -13,10 +13,12 @@ from vinyl_mp4.audio import (
     get_metadata,
     compute_energy,
     get_hue_offset,
+    get_shader_index,
     AudioEnergy,
 )
 from vinyl_mp4.encoder import VideoEncoder, check_ffmpeg, FFmpegNotFoundError
 from vinyl_mp4.renderer import VinylRenderer, create_label_texture
+from vinyl_mp4.shaders import get_num_shaders
 
 
 def render_single_frame(args, input_path: Path) -> int:
@@ -76,13 +78,16 @@ def render_single_frame(args, input_path: Path) -> int:
         f"  Frame {frame_idx} at {frame_time:.2f}s: low={energy_low:.3f}, mid={energy_mid:.3f}, high={energy_high:.3f}"
     )
 
-    # Get hue offset
+    # Get hue offset and shader index
     hue_offset = get_hue_offset(input_path.name)
+    shader_index = get_shader_index(input_path.name, get_num_shaders())
     print(f"  Hue offset: {hue_offset:.3f}")
+    print(f"  Shader index: {shader_index}")
 
     # Initialize renderer
     print(f"Initializing renderer ({args.width}x{args.height})...")
-    renderer = VinylRenderer(args.width, args.height)
+    renderer = VinylRenderer(args.width, args.height, shader_index=shader_index)
+    print(f"  Using shader: {renderer.bg_shader.name}")
 
     # Create and set label texture
     label_img = create_label_texture(title, artist, track_name=track_name)
@@ -292,13 +297,16 @@ def main() -> int:
         num_frames = len(energy.total)
         print(f"  Frames to render: {num_frames}")
 
-        # Get hue offset from filename
+        # Get hue offset and shader index from filename
         hue_offset = get_hue_offset(input_path.name)
+        shader_index = get_shader_index(input_path.name, get_num_shaders())
         print(f"  Hue offset: {hue_offset:.3f}")
+        print(f"  Shader index: {shader_index}")
 
         # Initialize renderer
         print(f"Initializing renderer ({args.width}x{args.height})...")
-        renderer = VinylRenderer(args.width, args.height)
+        renderer = VinylRenderer(args.width, args.height, shader_index=shader_index)
+        print(f"  Using shader: {renderer.bg_shader.name}")
 
         # Create and set label texture with track name for curved text
         label_img = create_label_texture(title, artist, track_name=track_name)

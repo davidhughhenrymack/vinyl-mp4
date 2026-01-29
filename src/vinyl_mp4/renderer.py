@@ -6,10 +6,10 @@ import moderngl
 from PIL import Image, ImageDraw, ImageFont
 
 from vinyl_mp4.shaders import (
-    BACKGROUND_VERTEX_SHADER,
-    BACKGROUND_FRAGMENT_SHADER,
     VINYL_VERTEX_SHADER,
     VINYL_FRAGMENT_SHADER,
+    get_shader_class,
+    BaseShader,
 )
 
 
@@ -305,21 +305,22 @@ class VinylRenderer:
     """Headless OpenGL renderer for vinyl visualization.
 
     Renders a two-layer visualization:
-    1. Background: Animated iridescent fBM pattern
+    1. Background: Animated shader (selectable from registry)
     2. Foreground: Spinning vinyl record with label
 
     Optimized for high throughput with:
     - Pre-allocated output buffer for fast pixel readback
     - Cached uniform locations
-    - Renderbuffer for non-sampled framebuffer attachment
+    - Shader class-based rendering
     """
 
-    def __init__(self, width: int, height: int):
+    def __init__(self, width: int, height: int, shader_index: int = 0):
         """Initialize the renderer with given dimensions.
 
         Args:
             width: Output frame width in pixels.
             height: Output frame height in pixels.
+            shader_index: Index of background shader to use (wraps around).
         """
         self.width = width
         self.height = height
@@ -342,26 +343,27 @@ class VinylRenderer:
         vertices = np.array([-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0], dtype="f4")
         self.vbo = self.ctx.buffer(vertices)
 
-        # Create background shader program
-        self.bg_program = self.ctx.program(
-            vertex_shader=BACKGROUND_VERTEX_SHADER,
-            fragment_shader=BACKGROUND_FRAGMENT_SHADER,
-        )
+        # Instantiate selected background shader
+        shader_class = get_shader_class(shader_index)
+        self.bg_shader: BaseShader = shader_class()
+
+        # Create noise texture if shader needs it
+        self.noise_texture = None
+        if self.bg_shader.needs_noise_texture:
+            self.noise_texture = self._create_noise_texture(256, 256)
+
+        # Create background shader programs
+        self.bg_programs = self.bg_shader.create_programs(self.ctx)
+        self.bg_program = self.bg_programs["main"]
         self.bg_vao = self.ctx.vertex_array(
             self.bg_program,
             [(self.vbo, "2f", "in_position")],
         )
 
-        # Cache uniform locations for background shader
-        self._bg_u_time = self.bg_program["u_time"]
-        self._bg_u_resolution = self.bg_program["u_resolution"]
-        self._bg_u_energy_low = self.bg_program["u_energy_low"]
-        self._bg_u_energy_mid = self.bg_program["u_energy_mid"]
-        self._bg_u_energy_high = self.bg_program["u_energy_high"]
-        self._bg_u_hue_offset = self.bg_program["u_hue_offset"]
-
-        # Set static uniforms once
-        self._bg_u_resolution.value = (float(width), float(height))
+        # Bind noise texture if available and shader has the uniform
+        if self.noise_texture is not None and "u_noise_texture" in self.bg_program:
+            self.noise_texture.use(location=1)
+            self.bg_program["u_noise_texture"].value = 1
 
         # Create vinyl shader program
         self.vinyl_program = self.ctx.program(
@@ -400,6 +402,24 @@ class VinylRenderer:
 
         # Use the framebuffer
         self.fbo.use()
+
+    def _create_noise_texture(self, width: int, height: int) -> moderngl.Texture:
+        """Create a noise texture for shaders that need it.
+
+        Args:
+            width: Texture width.
+            height: Texture height.
+
+        Returns:
+            OpenGL texture containing random RGBA values.
+        """
+        # Generate random noise data
+        noise_data = np.random.randint(0, 256, (height, width, 4), dtype=np.uint8)
+        texture = self.ctx.texture((width, height), 4, noise_data.tobytes())
+        texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        texture.repeat_x = True
+        texture.repeat_y = True
+        return texture
 
     def set_label_texture(self, image: Image.Image) -> None:
         """Set the vinyl label texture from a PIL Image.
@@ -445,12 +465,16 @@ class VinylRenderer:
         # Clear framebuffer
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
-        # Render background - only set dynamic uniforms
-        self._bg_u_time.value = time
-        self._bg_u_energy_low.value = energy_low
-        self._bg_u_energy_mid.value = energy_mid
-        self._bg_u_energy_high.value = energy_high
-        self._bg_u_hue_offset.value = hue_offset
+        # Render background using shader class
+        self.bg_shader.set_uniforms(
+            self.bg_program,
+            time,
+            energy_low,
+            energy_mid,
+            energy_high,
+            hue_offset,
+            (self.width, self.height),
+        )
         self.bg_vao.render(moderngl.TRIANGLE_STRIP)
 
         # Render vinyl - only set dynamic uniform
@@ -468,7 +492,10 @@ class VinylRenderer:
         self.vbo.release()
         self.bg_vao.release()
         self.vinyl_vao.release()
-        self.bg_program.release()
+        for prog in self.bg_programs.values():
+            prog.release()
         self.vinyl_program.release()
         self.label_texture.release()
+        if self.noise_texture is not None:
+            self.noise_texture.release()
         self.ctx.release()

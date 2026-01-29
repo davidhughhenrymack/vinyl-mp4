@@ -189,3 +189,23 @@ def get_hue_offset(filename: str) -> float:
     """
     h = hashlib.md5(filename.encode()).hexdigest()
     return int(h[:8], 16) / 0xFFFFFFFF
+
+
+def get_shader_index(filename: str, num_shaders: int) -> int:
+    """Hash filename to get deterministic shader index.
+
+    Uses different bits of the MD5 hash than get_hue_offset to ensure
+    independent selection. Same filename always produces the same shader.
+
+    Args:
+        filename: The filename (not full path) to hash.
+        num_shaders: Number of available shaders.
+
+    Returns:
+        Integer in range 0 to num_shaders-1.
+    """
+    if num_shaders <= 0:
+        return 0
+    h = hashlib.md5(filename.encode()).hexdigest()
+    # Use bytes 8-16 (different from hue_offset which uses 0-8)
+    return int(h[8:16], 16) % num_shaders
