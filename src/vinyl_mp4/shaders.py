@@ -43,29 +43,32 @@ vec3 hsv2rgb(vec3 c) {
 // Maps pattern value (0-1) to dark -> saturated -> light
 // Uses master hue as the center of the palette
 vec3 harmonious_colormap(float x, float master_hue) {
-    // Narrow hue variation: +/- 0.04 around master hue (about 15 degrees)
-    float hue_variation = (x - 0.5) * 0.08;
-    float hue = fract(master_hue + hue_variation);
+    // Three-point gradient: dark -> saturated -> bright
+    // Heavily biased toward saturated and bright colors
+    float sat, val, hue_shift;
     
-    // Three-point gradient: dark -> saturated -> light
-    float sat, val;
-    
-    if (x < 0.4) {
-        // Dark region: low brightness, medium-high saturation
-        float t = x / 0.4;
-        sat = mix(0.6, 0.85, t);
-        val = mix(0.12, 0.35, t);
-    } else if (x < 0.7) {
-        // Saturated region: high saturation, medium brightness
-        float t = (x - 0.4) / 0.3;
-        sat = mix(0.85, 0.9, t);
-        val = mix(0.35, 0.65, t);
+    if (x < 0.2) {
+        // Dark accent region (small portion) - shifted hue for contrast
+        float t = x / 0.2;
+        sat = mix(0.75, 0.95, t);
+        val = mix(0.35, 0.55, t);
+        hue_shift = -0.08;  // Shift darks toward complementary
+    } else if (x < 0.5) {
+        // Saturated region (punchy colors)
+        float t = (x - 0.2) / 0.3;
+        sat = mix(0.95, 1.0, t);
+        val = mix(0.55, 0.8, t);
+        hue_shift = mix(-0.08, 0.0, t);  // Transition back to main hue
     } else {
-        // Light region: lower saturation, high brightness
-        float t = (x - 0.7) / 0.3;
-        sat = mix(0.9, 0.35, t);
-        val = mix(0.65, 0.92, t);
+        // Highlight region (bright and vibrant)
+        float t = (x - 0.5) / 0.5;
+        sat = mix(1.0, 0.6, t);
+        val = mix(0.8, 1.0, t);
+        hue_shift = (x - 0.5) * 0.06;  // Slight shift toward warm
     }
+    
+    // Narrow hue variation around master hue
+    float hue = fract(master_hue + hue_shift + (x - 0.5) * 0.06);
     
     return hsv2rgb(vec3(hue, sat, val));
 }
@@ -91,37 +94,37 @@ float noise(vec2 p) {
 // Rotation matrix for FBM
 const mat2 mtx = mat2(0.80, 0.60, -0.60, 0.80);
 
-// Fractal Brownian Motion - with amplitude modulation
-float fbm(vec2 p, float time, float amp_mod) {
+// Fractal Brownian Motion - with amplitude and high-freq shimmer modulation
+float fbm(vec2 p, float time, float amp_mod, float shimmer) {
     float f = 0.0;
+    
+    // Shimmer speeds up fine detail animation on hi-hats/cymbals
+    float fast_time = time * (1.0 + shimmer * 3.0);
 
     f += 0.500000 * (1.0 + amp_mod * 0.5) * noise(p + time); p = mtx * p * 2.02;
-    f += 0.031250 * noise(p); p = mtx * p * 2.01;
+    f += 0.031250 * noise(p + fast_time * 0.5); p = mtx * p * 2.01;
     f += 0.250000 * noise(p); p = mtx * p * 2.03;
-    f += 0.125000 * noise(p); p = mtx * p * 2.01;
-    f += 0.062500 * noise(p); p = mtx * p * 2.04;
-    f += 0.015625 * noise(p + sin(time));
+    f += 0.125000 * noise(p + fast_time * 0.3); p = mtx * p * 2.01;
+    f += 0.062500 * noise(p + fast_time * 0.7); p = mtx * p * 2.04;
+    f += 0.015625 * noise(p + sin(fast_time));
 
     return f / 0.96875;
 }
 
-// Domain warping pattern with warp intensity modulation from mid freq
-float pattern(vec2 p, float time, float amp_mod, float warp_intensity) {
+// Domain warping pattern with warp intensity and shimmer modulation
+float pattern(vec2 p, float time, float amp_mod, float warp_intensity, float shimmer) {
     // Mid frequency controls domain warp complexity
     float warp = 0.8 + warp_intensity * 0.4;  // Range 0.8 to 1.2
-    vec2 q = p + fbm(p, time, amp_mod) * warp;
-    vec2 r = q + fbm(q, time, amp_mod) * warp;
-    return fbm(r, time, amp_mod);
+    vec2 q = p + fbm(p, time, amp_mod, shimmer) * warp;
+    vec2 r = q + fbm(q, time, amp_mod, shimmer) * warp;
+    return fbm(r, time, amp_mod, shimmer);
 }
 
 // Get color at a UV position (for blur sampling)
-vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float master_hue, float brightness) {
+vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float shimmer, float master_hue) {
     vec2 scaled_uv = uv * scale;
-    float shade = pattern(scaled_uv, time, amp_mod, warp_mod);
-    vec3 rgb = harmonious_colormap(shade, master_hue);
-    // Apply brightness modulation from high frequency
-    rgb = rgb * brightness;
-    return clamp(rgb, 0.0, 1.0);
+    float shade = pattern(scaled_uv, time, amp_mod, warp_mod, shimmer);
+    return harmonious_colormap(shade, master_hue);
 }
 
 void main() {
@@ -138,8 +141,8 @@ void main() {
     // Master hue: base offset + slow drift over time (30 min cycle)
     float master_hue = fract(u_hue_offset + sin(u_time * 3.14159 / 1800.0) * 0.15);
     
-    // Brightness modulation from high frequency
-    float brightness = 0.85 + u_energy_high * 0.3;
+    // High frequency controls shimmer/turbulence in fine details
+    float shimmer = u_energy_high;
     
     // Blur effect controlled by low frequency energy
     float blur_radius = u_energy_low * 0.025;  // Stronger bass blur
@@ -151,30 +154,30 @@ void main() {
         float total_weight = 0.0;
         
         // Center sample (highest weight)
-        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * 0.25;
+        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * 0.25;
         total_weight += 0.25;
         
         // Cardinal directions
         float w1 = 0.125;
-        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
-        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
-        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
-        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
+        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
+        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w1;
         total_weight += w1 * 4.0;
         
         // Diagonal directions (lower weight)
         float w2 = 0.0625;
         float diag = blur_radius * 0.707;
-        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
-        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
-        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
-        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
+        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
+        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, shimmer, master_hue) * w2;
         total_weight += w2 * 4.0;
         
         rgb /= total_weight;
     } else {
         // No blur - single sample
-        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue, brightness);
+        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, shimmer, master_hue);
     }
     
     fragColor = vec4(rgb, 1.0);
