@@ -85,6 +85,9 @@ class VideoEncoder:
         cmd = [
             "ffmpeg",
             "-y",  # Overwrite output without asking
+            "-hide_banner",
+            "-loglevel",
+            "error",
             # Video input (raw frames from pipe)
             "-f",
             "rawvideo",
@@ -132,7 +135,7 @@ class VideoEncoder:
             self.proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
         except FileNotFoundError as e:
@@ -141,6 +144,7 @@ class VideoEncoder:
                 "On macOS: brew install ffmpeg\n"
                 "On Ubuntu: sudo apt install ffmpeg"
             ) from e
+        self._cmd = cmd
 
     def write_frame(self, frame_data: bytes) -> None:
         """Write a single frame to the encoder.
@@ -148,8 +152,37 @@ class VideoEncoder:
         Args:
             frame_data: Raw RGBA pixel data (width * height * 4 bytes).
         """
-        if self.proc.stdin:
+        if not self.proc.stdin:
+            raise RuntimeError("FFmpeg stdin is not available.")
+        try:
             self.proc.stdin.write(frame_data)
+        except BrokenPipeError as e:
+            # FFmpeg exited early; surface stderr instead of a generic pipe error.
+            # (Most commonly: missing encoder like libx264, invalid paths, or FFmpeg failing to open output.)
+            try:
+                self.proc.stdin.close()
+            except Exception:
+                pass
+            # Prevent subprocess.communicate() from trying to flush a closed stdin (py3.13).
+            self.proc.stdin = None
+
+            stderr_data = b""
+            try:
+                # If ffmpeg already exited, communicate() returns immediately.
+                _, stderr_data = self.proc.communicate(timeout=1)
+            except Exception:
+                # Fall back to whatever we can read without hanging.
+                if self.proc.stderr:
+                    try:
+                        stderr_data = self.proc.stderr.read()
+                    except Exception:
+                        stderr_data = b""
+
+            stderr_text = (stderr_data or b"").decode("utf-8", errors="replace").strip()
+            msg = "FFmpeg exited early while writing frames."
+            if stderr_text:
+                msg += f"\n\nffmpeg stderr:\n{stderr_text}"
+            raise RuntimeError(msg) from e
 
     def finish(self) -> None:
         """Finish encoding and wait for FFmpeg to complete.
@@ -159,16 +192,17 @@ class VideoEncoder:
         """
         if self.proc.stdin:
             self.proc.stdin.close()
+            # Prevent subprocess.communicate() from trying to flush a closed stdin (py3.13).
+            self.proc.stdin = None
 
-        # Wait for FFmpeg to complete and capture output
-        # Don't use communicate() since stdin is already closed
-        stderr_data = self.proc.stderr.read() if self.proc.stderr else b""
-        self.proc.wait()
+        # Wait for FFmpeg to complete and capture output.
+        # communicate() is safe here; stdin is closed and stdout is DEVNULL.
+        _, stderr_data = self.proc.communicate()
 
         if self.proc.returncode != 0:
             raise RuntimeError(
                 f"FFmpeg failed with return code {self.proc.returncode}:\n"
-                f"{stderr_data.decode('utf-8', errors='replace')}"
+                f"{(stderr_data or b'').decode('utf-8', errors='replace')}"
             )
 
     def abort(self) -> None:

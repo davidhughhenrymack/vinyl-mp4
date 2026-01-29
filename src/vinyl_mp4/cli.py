@@ -1,7 +1,11 @@
 """Command-line interface for vinyl-mp4."""
 
 import argparse
+import os
+import random
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -403,14 +407,29 @@ def main() -> int:
 
         # Initialize encoder
         print("Starting video encoder...")
+        # Write to a temp file first, then move into place on success.
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_dir = Path(tempfile.gettempdir())
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_out = tempfile.mkstemp(
+            prefix=f".{output_path.stem}.",
+            suffix=".tmp.mp4",
+            dir=str(tmp_dir),
+        )
+        os.close(fd)
+        tmp_output_path = Path(tmp_out)
         encoder = VideoEncoder(
-            output_path=str(output_path),
+            output_path=str(tmp_output_path),
             audio_path=str(input_path),
             width=args.width,
             height=args.height,
             fps=args.fps,
             duration_limit=args.limit,
         )
+
+        # Randomize shader time start so videos don't all begin on the same frame.
+        # This offsets the visual animation timeline only; audio energy indexing is unchanged.
+        time_offset = random.uniform(0.0, 10_000.0)
 
         # Render frames with progress bar
         with tqdm(
@@ -420,7 +439,7 @@ def main() -> int:
             bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
         ) as pbar:
             for frame_idx in range(num_frames):
-                time = frame_idx / args.fps
+                time = (frame_idx / args.fps) + time_offset
                 energy_low = energy.low[frame_idx]
                 energy_mid = energy.mid[frame_idx]
                 energy_high = energy.high[frame_idx]
@@ -448,6 +467,7 @@ def main() -> int:
         # Cleanup
         renderer.release()
 
+        shutil.move(tmp_output_path, output_path)
         print(f"Done! Output saved to: {output_path}")
         return 0
 
@@ -455,6 +475,17 @@ def main() -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     except Exception as e:
+        # Best-effort cleanup of temp output file if it exists.
+        try:
+            tmp_output_path  # type: ignore[name-defined]
+        except Exception:
+            pass
+        else:
+            try:
+                if tmp_output_path.exists():
+                    tmp_output_path.unlink()
+            except Exception:
+                pass
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
