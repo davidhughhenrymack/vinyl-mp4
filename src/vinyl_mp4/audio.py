@@ -16,8 +16,8 @@ class AudioEnergy:
     """Audio energy data split into frequency bands."""
 
     total: np.ndarray  # Total energy (0-1)
-    low: np.ndarray  # Low frequency energy (0-1), bass/kick <250Hz
-    mid: np.ndarray  # Mid frequency energy (0-1), vocals/instruments 250-4000Hz
+    low: np.ndarray  # Low frequency energy (0-1), sub-bass/kick <100Hz
+    mid: np.ndarray  # Mid frequency energy (0-1), bass/vocals/instruments 100-4000Hz
     high: np.ndarray  # High frequency energy (0-1), hi-hats/cymbals >4000Hz
 
 
@@ -108,14 +108,16 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
 
     if num_frames == 0:
         zeros = np.array([0.0], dtype=np.float32)
-        return AudioEnergy(total=zeros, low=zeros.copy(), mid=zeros.copy(), high=zeros.copy())
+        return AudioEnergy(
+            total=zeros, low=zeros.copy(), mid=zeros.copy(), high=zeros.copy()
+        )
 
     # Design filters for frequency band separation
-    # Low pass: 0-250 Hz (bass, kick drums)
-    # Band pass: 250-4000 Hz (vocals, instruments, mid-range)
+    # Low pass: 0-100 Hz (sub-bass, kick drums)
+    # Band pass: 100-4000 Hz (bass guitar, vocals, instruments)
     # High pass: 4000+ Hz (hi-hats, cymbals, brightness)
     nyquist = sample_rate / 2
-    low_cutoff = 250 / nyquist
+    low_cutoff = 100 / nyquist  # Narrower for sub-bass/kick only
     high_cutoff = 4000 / nyquist
 
     # Create butterworth filters

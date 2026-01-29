@@ -24,8 +24,8 @@ BACKGROUND_FRAGMENT_SHADER = """
 
 uniform float u_time;
 uniform vec2 u_resolution;
-uniform float u_energy_low;   // Bass/kick energy (0-1) <250Hz
-uniform float u_energy_mid;   // Vocals/instruments energy (0-1) 250-4000Hz
+uniform float u_energy_low;   // Sub-bass/kick energy (0-1) <100Hz
+uniform float u_energy_mid;   // Bass/vocals/instruments energy (0-1) 100-4000Hz
 uniform float u_energy_high;  // Hi-hat/treble energy (0-1) >4000Hz
 uniform float u_hue_offset;
 
@@ -134,6 +134,17 @@ float pattern(vec2 p, float time, float amp_mod, float warp_intensity) {
     return fbm(r, time, amp_mod);
 }
 
+// Get color at a UV position (for blur sampling)
+vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float hue_off, float hue_shift, float brightness) {
+    vec2 scaled_uv = uv * scale;
+    float shade = pattern(scaled_uv, time, amp_mod, warp_mod);
+    vec3 rgb = colormap(shade);
+    vec3 hsv = rgb2hsv(rgb);
+    hsv.x = fract(hsv.x + hue_off + hue_shift);
+    hsv.z = min(1.0, hsv.z * brightness);
+    return hsv2rgb(hsv);
+}
+
 void main() {
     // Time runs smoothly - no energy-based speed changes for stable animation
     float time = u_time * 0.3;
@@ -144,30 +155,47 @@ void main() {
     
     // Low frequency (bass) controls pattern scale - gentle zoom anchored at center
     float scale = 2.8 + u_energy_low * 0.15;  // Gentler scaling effect
-    uv *= scale;
     
-    // Calculate pattern value:
-    // - Low freq modulates amplitude
-    // - Mid freq modulates domain warp complexity
-    float shade = pattern(uv, time, u_energy_low, u_energy_mid);
-    
-    // Get base color from colormap
-    vec3 rgb = colormap(shade);
-    
-    // Convert to HSV for color manipulation
-    vec3 hsv = rgb2hsv(rgb);
-    
-    // Apply base hue offset from filename hash
-    hsv.x = fract(hsv.x + u_hue_offset);
-    
-    // Slow hue rotation over time (full cycle over ~30 minutes = 1800 seconds)
+    // Precompute color parameters
     float slow_hue_shift = sin(u_time * 3.14159 / 1800.0) * 0.15;
-    hsv.x = fract(hsv.x + slow_hue_shift);
+    float brightness = 0.85 + u_energy_high * 0.3;
     
-    // High frequency (treble) boosts brightness
-    hsv.z = min(1.0, hsv.z * (0.85 + u_energy_high * 0.3));
+    // Mild blur effect controlled by low frequency energy
+    // Blur radius increases with bass energy
+    float blur_radius = u_energy_low * 0.012;  // Mild blur
     
-    rgb = hsv2rgb(hsv);
+    vec3 rgb;
+    if (blur_radius > 0.001) {
+        // 9-tap gaussian-like blur kernel
+        rgb = vec3(0.0);
+        float total_weight = 0.0;
+        
+        // Center sample (highest weight)
+        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * 0.25;
+        total_weight += 0.25;
+        
+        // Cardinal directions
+        float w1 = 0.125;
+        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
+        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
+        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
+        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
+        total_weight += w1 * 4.0;
+        
+        // Diagonal directions (lower weight)
+        float w2 = 0.0625;
+        float diag = blur_radius * 0.707;
+        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
+        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
+        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
+        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
+        total_weight += w2 * 4.0;
+        
+        rgb /= total_weight;
+    } else {
+        // No blur - single sample
+        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness);
+    }
     
     fragColor = vec4(rgb, 1.0);
 }
