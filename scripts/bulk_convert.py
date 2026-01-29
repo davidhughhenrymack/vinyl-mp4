@@ -30,6 +30,7 @@ class Job:
     mp3_path: Path
     output_path: Optional[Path]
     limit: Optional[float]
+    extra_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ def _run_job(job: Job) -> JobResult:
 
 def _job_cmd(job: Job) -> list[str]:
     cmd = [sys.executable, "-m", "vinyl_mp4", str(job.mp3_path)]
+    cmd += list(job.extra_args)
     if job.output_path is not None:
         cmd += ["-o", str(job.output_path)]
     if job.limit is not None:
@@ -179,6 +181,38 @@ def main() -> int:
         default=4,
         help="Max conversions in parallel (default: 4).",
     )
+    # Resolution presets (match vinyl-mp4 CLI)
+    res_group = parser.add_mutually_exclusive_group()
+    res_group.add_argument(
+        "--480p",
+        action="store_true",
+        dest="res_480p",
+        help="Output at 480p (854x480)",
+    )
+    res_group.add_argument(
+        "--720p",
+        action="store_true",
+        dest="res_720p",
+        help="Output at 720p (1280x720)",
+    )
+    res_group.add_argument(
+        "--1080p",
+        action="store_true",
+        dest="res_1080p",
+        help="Output at 1080p (1920x1080) [default]",
+    )
+    res_group.add_argument(
+        "--1440p",
+        action="store_true",
+        dest="res_1440p",
+        help="Output at 1440p/2K (2560x1440)",
+    )
+    res_group.add_argument(
+        "--4k",
+        action="store_true",
+        dest="res_4k",
+        help="Output at 4K (3840x2160)",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -205,12 +239,32 @@ def main() -> int:
         # Hard cap to what you asked for.
         max_parallel = 4
 
+    # Pass-through args shared by all jobs
+    extra_args: list[str] = []
+    if getattr(args, "res_480p", False):
+        extra_args.append("--480p")
+    elif getattr(args, "res_720p", False):
+        extra_args.append("--720p")
+    elif getattr(args, "res_1080p", False):
+        extra_args.append("--1080p")
+    elif getattr(args, "res_1440p", False):
+        extra_args.append("--1440p")
+    elif getattr(args, "res_4k", False):
+        extra_args.append("--4k")
+
     jobs: list[Job] = []
     for mp3 in mp3s:
         out_path = None
         if args.output_dir is not None:
             out_path = _build_output_path(args.output_dir, mp3, args.limit)
-        jobs.append(Job(mp3_path=mp3, output_path=out_path, limit=args.limit))
+        jobs.append(
+            Job(
+                mp3_path=mp3,
+                output_path=out_path,
+                limit=args.limit,
+                extra_args=tuple(extra_args),
+            )
+        )
 
     if args.dry_run:
         for j in jobs:
