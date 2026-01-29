@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
@@ -89,7 +90,9 @@ def render_single_frame(args, input_path: Path) -> int:
 
     # Render frame
     print(f"Rendering frame at t={frame_time:.2f}s...")
-    frame_data = renderer.render_frame(frame_time, energy_low, energy_mid, energy_high, hue_offset)
+    frame_data = renderer.render_frame(
+        frame_time, energy_low, energy_mid, energy_high, hue_offset
+    )
 
     # Convert to PIL Image and save (RGBA format, flip for OpenGL)
     img = Image.frombytes("RGBA", (args.width, args.height), frame_data)
@@ -210,7 +213,7 @@ def main() -> int:
         if getattr(args, preset, False):
             selected_preset = (w, h)
             break
-    
+
     # Explicit width/height override presets, presets override defaults
     if args.width is not None and args.height is not None:
         pass  # Use explicit values
@@ -329,6 +332,12 @@ def main() -> int:
                 frame_data = renderer.render_frame(
                     time, energy_low, energy_mid, energy_high, hue_offset
                 )
+
+                # Flip vertically for correct video orientation (OpenGL is bottom-to-top)
+                arr = np.frombuffer(frame_data, dtype=np.uint8).reshape(
+                    args.height, args.width, 4
+                )
+                frame_data = np.ascontiguousarray(arr[::-1]).tobytes()
 
                 # Write to encoder
                 encoder.write_frame(frame_data)
