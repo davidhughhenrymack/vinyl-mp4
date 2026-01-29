@@ -3,9 +3,10 @@
 Convert MP3 files to MP4 videos with audio-reactive vinyl visualization.
 
 Generates a video with:
-- **Animated iridescent background** - Domain-warped fractal Brownian motion patterns that react to audio energy
-- **Spinning vinyl record** - 33 RPM rotation with grooves and a label showing track title/artist
-- **Unique colors per file** - Each input file gets a unique color palette based on its filename hash
+- **Animated iridescent background** - Domain-warped fractal Brownian motion patterns that react to audio energy (bass controls scale/intensity, treble controls brightness)
+- **Spinning vinyl record** - 33 RPM rotation with realistic grooves, film grain, and a vintage-style label
+- **Custom label design** - Shows artist, title, track name as curved text around the rim, and "DM" logo
+- **Unique colors per file** - Each input file gets a unique color palette based on its filename hash, with slow hue rotation over time
 
 ## Requirements
 
@@ -67,14 +68,22 @@ This will create `song.mp4` in the same directory as the input file.
 vinyl-mp4 input.mp3 [OPTIONS]
 
 Options:
-  -o, --output PATH   Output MP4 file path (default: input name with .mp4)
+  -o, --output PATH   Output file path (MP4 for video, PNG for --frame)
   --width INT         Video width in pixels (default: 3840 for 4K)
   --height INT        Video height in pixels (default: 2160 for 4K)
-  --fps INT           Frames per second (default: 30)
+  --fps INT           Frames per second (default: 60)
+  --limit SECONDS     Limit output to first N seconds of audio
+  --name TEXT         Track name to display on vinyl label (default: filename)
+  --frame SECONDS     Render a single frame at this time to PNG (for testing)
   --help              Show help message
 ```
 
 ### Examples
+
+**Basic conversion:**
+```bash
+uv run vinyl-mp4 song.mp3
+```
 
 **Convert to 1080p:**
 ```bash
@@ -86,6 +95,26 @@ uv run vinyl-mp4 song.mp3 --width 1920 --height 1080
 uv run vinyl-mp4 song.mp3 -o output/my_video.mp4
 ```
 
+**Render first 30 seconds only:**
+```bash
+uv run vinyl-mp4 song.mp3 --limit 30
+# Output: song-30s.mp4
+```
+
+**Custom track name on label:**
+```bash
+uv run vinyl-mp4 song.mp3 --name "My Awesome Track"
+```
+
+**Quick test - render single frame:**
+```bash
+uv run vinyl-mp4 song.mp3 --frame 10
+# Output: song-frame-10.0s.png
+
+# Render frame at specific time with custom output
+uv run vinyl-mp4 song.mp3 --frame 5.5 -o preview.png
+```
+
 **Lower FPS for smaller file:**
 ```bash
 uv run vinyl-mp4 song.mp3 --fps 24
@@ -93,12 +122,15 @@ uv run vinyl-mp4 song.mp3 --fps 24
 
 ## How It Works
 
-1. **Audio Analysis** - Loads the MP3, extracts metadata (title/artist), and computes per-frame energy levels
-2. **Color Selection** - Hashes the filename to determine a unique hue offset for the background colors
-3. **Rendering** - Uses OpenGL to render each frame:
-   - Background: Animated warped fBM shader with audio-reactive speed
-   - Foreground: Spinning vinyl record with label
-4. **Encoding** - Streams frames to FFmpeg for H.264 encoding with the original audio
+1. **Audio Analysis** - Loads the MP3, extracts ID3 metadata (title/artist), and computes per-frame energy in two frequency bands:
+   - **Low frequency** (<250 Hz) - Bass and kick drums
+   - **High frequency** (>4000 Hz) - Hi-hats, cymbals, brightness
+2. **Color Selection** - Hashes the filename to determine a unique hue offset, plus slow sine-based hue rotation over ~30 minutes
+3. **Rendering** - Uses headless OpenGL (ModernGL) to render each frame:
+   - **Background**: Animated domain-warped fBM shader - bass controls scale/intensity, treble controls brightness
+   - **Vinyl**: Spinning 33 RPM record with procedural grooves and animated film grain
+   - **Label**: Vintage-style design with curved track name, artist/title, and logo
+4. **Encoding** - Streams raw RGBA frames to FFmpeg for H.264 encoding, muxed with original audio
 
 ## Development
 

@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from PIL import Image
 from tqdm import tqdm
 
 from vinyl_mp4.audio import (
@@ -15,6 +16,89 @@ from vinyl_mp4.audio import (
 )
 from vinyl_mp4.encoder import VideoEncoder, check_ffmpeg, FFmpegNotFoundError
 from vinyl_mp4.renderer import VinylRenderer, create_label_texture
+
+
+def render_single_frame(args, input_path: Path) -> int:
+    """Render a single frame to PNG for testing.
+
+    Args:
+        args: Parsed command-line arguments.
+        input_path: Path to input MP3 file.
+
+    Returns:
+        Exit code (0 for success, non-zero for error).
+    """
+    frame_time = args.frame
+
+    # Determine output path
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_path = (
+            input_path.parent / f"{input_path.stem}-frame-{frame_time:.1f}s.png"
+        )
+
+    # Load audio for metadata and energy
+    print(f"Loading audio: {input_path}")
+    samples, sample_rate = load_audio(str(input_path))
+    duration = len(samples) / sample_rate
+
+    if frame_time > duration:
+        print(
+            f"Error: Frame time {frame_time}s exceeds audio duration {duration:.2f}s",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Get metadata
+    metadata = get_metadata(str(input_path))
+    title = metadata["title"]
+    artist = metadata["artist"]
+    track_name = args.name if args.name else input_path.stem
+
+    print(f"  Title: {title}")
+    print(f"  Artist: {artist}")
+    print(f"  Track name: {track_name}")
+
+    # Compute energy for the specific frame
+    print("Computing audio energy...")
+    energy = compute_energy(samples, sample_rate, args.fps)
+
+    # Get frame index
+    frame_idx = int(frame_time * args.fps)
+    frame_idx = min(frame_idx, len(energy.total) - 1)
+
+    energy_low = energy.low[frame_idx]
+    energy_high = energy.high[frame_idx]
+    print(
+        f"  Frame {frame_idx} at {frame_time:.2f}s: low={energy_low:.3f}, high={energy_high:.3f}"
+    )
+
+    # Get hue offset
+    hue_offset = get_hue_offset(input_path.name)
+    print(f"  Hue offset: {hue_offset:.3f}")
+
+    # Initialize renderer
+    print(f"Initializing renderer ({args.width}x{args.height})...")
+    renderer = VinylRenderer(args.width, args.height)
+
+    # Create and set label texture
+    label_img = create_label_texture(title, artist, track_name=track_name)
+    renderer.set_label_texture(label_img)
+
+    # Render frame
+    print(f"Rendering frame at t={frame_time:.2f}s...")
+    frame_data = renderer.render_frame(frame_time, energy_low, energy_high, hue_offset)
+
+    # Convert to PIL Image and save
+    img = Image.frombytes("RGBA", (args.width, args.height), frame_data)
+    img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)  # OpenGL is upside down
+    img.save(output_path)
+
+    renderer.release()
+
+    print(f"Done! Frame saved to: {output_path}")
+    return 0
 
 
 def main() -> int:
@@ -35,7 +119,7 @@ def main() -> int:
     parser.add_argument(
         "-o",
         "--output",
-        help="Output MP4 file (default: input name with .mp4 extension)",
+        help="Output file (MP4 for video, PNG for --frame)",
     )
     parser.add_argument(
         "--width",
@@ -52,8 +136,8 @@ def main() -> int:
     parser.add_argument(
         "--fps",
         type=int,
-        default=30,
-        help="Output video frame rate (default: 30)",
+        default=60,
+        help="Output video frame rate (default: 60)",
     )
     parser.add_argument(
         "--limit",
@@ -67,6 +151,12 @@ def main() -> int:
         default=None,
         help="Track name to display on vinyl (default: filename without extension)",
     )
+    parser.add_argument(
+        "--frame",
+        type=float,
+        default=None,
+        help="Render a single frame at this time (seconds) to PNG instead of video",
+    )
 
     args = parser.parse_args()
 
@@ -76,7 +166,11 @@ def main() -> int:
         print(f"Error: Input file not found: {args.input}", file=sys.stderr)
         return 1
 
-    # Check FFmpeg is available
+    # Single frame mode - no FFmpeg needed
+    if args.frame is not None:
+        return render_single_frame(args, input_path)
+
+    # Video mode - check FFmpeg is available
     if not check_ffmpeg():
         print(
             "Error: FFmpeg not found. Please install FFmpeg:\n"

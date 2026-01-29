@@ -36,6 +36,15 @@ FONT_PATHS_LIGHT = [
     "/System/Library/Fonts/Helvetica.ttc",
 ]
 
+# Elegant fonts for curved rim text
+FONT_PATHS_RIM = [
+    "/Users/dmackparty/Library/Fonts/Raleway-Medium.ttf",
+    "/Users/dmackparty/Library/Fonts/Cabin-Medium.ttf",
+    "/Users/dmackparty/Library/Fonts/Lato-Regular.ttf",
+    "/Users/dmackparty/Library/Fonts/Montserrat-Medium.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+]
+
 
 def _load_font(font_paths: list[str], size: int) -> ImageFont.FreeTypeFont:
     """Try to load a font from a list of paths."""
@@ -79,7 +88,7 @@ def _draw_curved_text(
         char_angles.append(angle)
 
     # Add spacing between characters
-    spacing_angle = 1.5  # degrees
+    spacing_angle = 1.2  # degrees
     total_angle = sum(char_angles) + spacing_angle * (len(text) - 1)
 
     # Start from center of the text arc
@@ -88,7 +97,7 @@ def _draw_curved_text(
     cx, cy = center
 
     for i, char in enumerate(text):
-        # Calculate position
+        # Calculate position on circle
         angle_rad = math.radians(current_angle)
         x = cx + radius * math.cos(angle_rad)
         y = cy + radius * math.sin(angle_rad)
@@ -102,15 +111,16 @@ def _draw_curved_text(
         char_draw = ImageDraw.Draw(char_img)
         char_draw.text((5, 5 - bbox[1]), char, fill=fill, font=font)
 
-        # Rotate character to follow the arc (perpendicular to radius)
-        rotation = -current_angle + 90  # Adjust so text reads along the arc
+        # Rotate character so its top points outward from the circle center
+        # Text is drawn at bottom (90°) and flipped to top for OpenGL
+        rotation = 450 - current_angle  # (270 - current_angle + 180)
         char_img = char_img.rotate(rotation, expand=True, resample=Image.BICUBIC)
 
         # Paste at position (centered on the point)
         paste_x = int(x - char_img.width / 2)
         paste_y = int(y - char_img.height / 2)
 
-        # Create a mask for alpha compositing
+        # Paste with alpha compositing
         draw._image.paste(char_img, (paste_x, paste_y), char_img)
 
         # Move to next character position
@@ -145,15 +155,16 @@ def create_label_texture(
 
     center = size // 2
 
-    # Draw circular background for label (with small margin for curved text)
-    margin = size * 0.02
-    draw.ellipse([margin, margin, size - margin, size - margin], fill=cream)
+    # Draw circular background for label (no margin - extends to edge)
+    draw.ellipse([0, 0, size, size], fill=cream)
 
-    # Draw orange vertical stripe through center
+    # Draw orange vertical stripe through center (rotationally symmetric)
+    # Stripe extends equally above and below center
     stripe_width = int(size * 0.10)
     stripe_left = (size - stripe_width) // 2
-    stripe_top = int(size * 0.20)
-    stripe_bottom = int(size * 0.65)
+    stripe_extent = int(size * 0.22)  # How far from center in each direction
+    stripe_top = center - stripe_extent
+    stripe_bottom = center + stripe_extent
     draw.rectangle(
         [stripe_left, stripe_top, stripe_left + stripe_width, stripe_bottom],
         fill=orange,
@@ -162,7 +173,7 @@ def create_label_texture(
     # Load fonts
     font_main = _load_font(FONT_PATHS_BOLD, int(size * 0.065))
     font_logo = _load_font(FONT_PATHS_BOLD, int(size * 0.10))
-    font_curved = _load_font(FONT_PATHS_REGULAR, int(size * 0.045))
+    font_curved = _load_font(FONT_PATHS_RIM, int(size * 0.038))
 
     # Truncate long text
     max_chars = 16
@@ -183,12 +194,12 @@ def create_label_texture(
     title_y = int(size * 0.38)
     draw.text((title_x, title_y), title_text, fill=text_dark, font=font_main)
 
-    # Draw "DM" logo at bottom center
+    # Draw "DM" logo - horizontally centered, above the vertical stripe (after OpenGL flip)
     logo_text = "DM"
     logo_bbox = draw.textbbox((0, 0), logo_text, font=font_logo)
     logo_width = logo_bbox[2] - logo_bbox[0]
-    logo_x = (size - logo_width) // 2
-    logo_y = int(size * 0.70)
+    logo_x = (size - logo_width) // 2  # Horizontally centered
+    logo_y = int(size * 0.76)  # Near bottom, appears at top after OpenGL flip
     draw.text((logo_x, logo_y), logo_text, fill=text_dark, font=font_logo)
 
     # Draw curved track name around the rim
@@ -202,8 +213,8 @@ def create_label_texture(
         # Add some decorative dots
         curved_text = f"• {curved_text} •"
 
-        # Draw at the outer rim of the label
-        rim_radius = size * 0.42
+        # Draw at the outer rim of the label (at bottom, will flip to top for OpenGL)
+        rim_radius = size * 0.44
         _draw_curved_text(
             draw,
             curved_text,
@@ -211,8 +222,8 @@ def create_label_texture(
             rim_radius,
             font_curved,
             text_dark,
-            start_angle=270,
-            direction=1,
+            start_angle=90,  # Bottom of image, appears at top after OpenGL flip
+            direction=-1,  # Counter-clockwise so text reads left-to-right after flip
         )
 
     # Draw center spindle hole (transparent)

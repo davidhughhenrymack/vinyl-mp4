@@ -150,12 +150,15 @@ void main() {
     // Convert to HSV for color manipulation
     vec3 hsv = rgb2hsv(rgb);
     
-    // Apply hue offset from filename hash
+    // Apply base hue offset from filename hash
     hsv.x = fract(hsv.x + u_hue_offset);
     
-    // High frequency (treble) boosts saturation and brightness
-    hsv.y = min(1.0, hsv.y * (0.85 + u_energy_high * 0.35));
-    hsv.z = min(1.0, hsv.z * (0.9 + u_energy_high * 0.2));
+    // Slow hue rotation over time (full cycle over ~30 minutes = 1800 seconds)
+    float slow_hue_shift = sin(u_time * 3.14159 / 1800.0) * 0.15;
+    hsv.x = fract(hsv.x + slow_hue_shift);
+    
+    // High frequency (treble) boosts brightness
+    hsv.z = min(1.0, hsv.z * (0.85 + u_energy_high * 0.3));
     
     rgb = hsv2rgb(hsv);
     
@@ -193,6 +196,22 @@ const float LABEL_RADIUS = 0.26;  // 3/4 of vinyl radius for large label
 const float HOLE_RADIUS = 0.012;
 const float RPM = 33.0;
 
+// Simple noise function for film grain effect
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+        mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+        f.y
+    );
+}
+
 void main() {
     // Center the coordinates
     vec2 center = vec2(0.5);
@@ -227,11 +246,19 @@ void main() {
         uv.x * sin_r + uv.y * cos_r
     );
     
+    // Gentle animated noise for film grain effect (changes slowly)
+    float grain_time = floor(u_time * 8.0);  // 8 fps grain animation
+    float grain = noise(v_uv * 800.0 + grain_time * 100.0) * 0.04 - 0.02;
+    
     // Label area
     if (dist < LABEL_RADIUS) {
         // Map to texture coordinates
         vec2 label_uv = (rotated_uv / LABEL_RADIUS) * 0.5 + 0.5;
         vec4 label_color = texture(u_label_texture, label_uv);
+        
+        // Add subtle grain to label
+        label_color.rgb += grain * 0.5;
+        
         fragColor = label_color;
         return;
     }
@@ -260,6 +287,9 @@ void main() {
     // Slight color variation in grooves
     vinyl_color.r += sin(angle * 2.0 + dist * 50.0) * 0.01;
     vinyl_color.b += cos(angle * 2.0 + dist * 50.0) * 0.01;
+    
+    // Add grain to vinyl
+    vinyl_color += grain;
     
     fragColor = vec4(vinyl_color, 1.0);
 }
