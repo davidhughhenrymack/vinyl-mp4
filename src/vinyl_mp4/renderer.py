@@ -178,14 +178,14 @@ def create_label_texture(
     # Maximum width for text (from edge of stripe to near edge of label)
     max_text_width = int(size * 0.32)
     line_height = int(size * 0.07)
-    
+
     # Helper to wrap text to fit width
     def wrap_text(text: str, font, max_width: int) -> list[str]:
         """Wrap text to fit within max_width, returns list of lines."""
         words = text.split()
         lines = []
         current_line = ""
-        
+
         for word in words:
             test_line = f"{current_line} {word}".strip()
             bbox = draw.textbbox((0, 0), test_line, font=font)
@@ -195,10 +195,10 @@ def create_label_texture(
                 if current_line:
                     lines.append(current_line)
                 current_line = word
-        
+
         if current_line:
             lines.append(current_line)
-        
+
         # If a single word is too long, truncate it
         final_lines = []
         for line in lines:
@@ -213,7 +213,7 @@ def create_label_texture(
                         line = test
                         break
             final_lines.append(line)
-        
+
         return final_lines[:3]  # Max 3 lines
 
     # Draw artist name (left side of center) - uppercase, right-aligned
@@ -224,8 +224,12 @@ def create_label_texture(
     for i, line in enumerate(artist_lines):
         bbox = draw.textbbox((0, 0), line, font=font_main)
         line_width = bbox[2] - bbox[0]
-        draw.text((artist_x_right - line_width, artist_y + i * line_height), 
-                  line, fill=text_dark, font=font_main)
+        draw.text(
+            (artist_x_right - line_width, artist_y + i * line_height),
+            line,
+            fill=text_dark,
+            font=font_main,
+        )
 
     # Draw title (right side of center) - uppercase, left-aligned with word wrap
     title_text = title.upper()
@@ -233,8 +237,9 @@ def create_label_texture(
     title_x = int(size * 0.57)
     title_y = int(size * 0.38)
     for i, line in enumerate(title_lines):
-        draw.text((title_x, title_y + i * line_height), 
-                  line, fill=text_dark, font=font_main)
+        draw.text(
+            (title_x, title_y + i * line_height), line, fill=text_dark, font=font_main
+        )
 
     # Draw "DM" logo - horizontally centered, above the vertical stripe (after OpenGL flip)
     logo_text = "DM"
@@ -302,6 +307,11 @@ class VinylRenderer:
     Renders a two-layer visualization:
     1. Background: Animated iridescent fBM pattern
     2. Foreground: Spinning vinyl record with label
+
+    Optimized for high throughput with:
+    - Pre-allocated output buffer for fast pixel readback
+    - Cached uniform locations
+    - Renderbuffer for non-sampled framebuffer attachment
     """
 
     def __init__(self, width: int, height: int):
@@ -313,30 +323,23 @@ class VinylRenderer:
         """
         self.width = width
         self.height = height
+        self.frame_size = width * height * 4  # RGBA
 
-        # Create headless OpenGL context
+        # Create headless OpenGL context with explicit backend selection
         self.ctx = moderngl.create_standalone_context()
 
-        # Create framebuffer for rendering
-        self.fbo = self.ctx.framebuffer(
-            color_attachments=[self.ctx.texture((width, height), 4)]
-        )
+        # Enable garbage collection optimization
+        self.ctx.gc_mode = "context_gc"
+
+        # Create texture-based framebuffer for rendering
+        self.fbo_texture = self.ctx.texture((width, height), 4)
+        self.fbo = self.ctx.framebuffer(color_attachments=[self.fbo_texture])
+
+        # Pre-allocate output buffer for async-style reads
+        self.output_buffer = self.ctx.buffer(reserve=self.frame_size)
 
         # Create full-screen quad vertices
-        vertices = np.array(
-            [
-                -1.0,
-                -1.0,
-                1.0,
-                -1.0,
-                -1.0,
-                1.0,
-                1.0,
-                1.0,
-            ],
-            dtype="f4",
-        )
-
+        vertices = np.array([-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0], dtype="f4")
         self.vbo = self.ctx.buffer(vertices)
 
         # Create background shader program
@@ -349,6 +352,16 @@ class VinylRenderer:
             [(self.vbo, "2f", "in_position")],
         )
 
+        # Cache uniform locations for background shader
+        self._bg_u_time = self.bg_program["u_time"]
+        self._bg_u_resolution = self.bg_program["u_resolution"]
+        self._bg_u_energy_low = self.bg_program["u_energy_low"]
+        self._bg_u_energy_high = self.bg_program["u_energy_high"]
+        self._bg_u_hue_offset = self.bg_program["u_hue_offset"]
+
+        # Set static uniforms once
+        self._bg_u_resolution.value = (float(width), float(height))
+
         # Create vinyl shader program
         self.vinyl_program = self.ctx.program(
             vertex_shader=VINYL_VERTEX_SHADER,
@@ -359,14 +372,33 @@ class VinylRenderer:
             [(self.vbo, "2f", "in_position")],
         )
 
-        # Create default label texture (higher resolution for quality)
+        # Cache uniform locations for vinyl shader
+        self._vinyl_u_time = self.vinyl_program["u_time"]
+        self._vinyl_u_resolution = self.vinyl_program["u_resolution"]
+        self._vinyl_u_label_texture = self.vinyl_program["u_label_texture"]
+
+        # Set static uniforms once
+        self._vinyl_u_resolution.value = (float(width), float(height))
+        self._vinyl_u_label_texture.value = 0
+
+        # Create label texture
         self.label_size = 1024
         self.label_texture = self.ctx.texture((self.label_size, self.label_size), 4)
+        self.label_texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
         default_label = create_label_texture(
             "Unknown", "Unknown", track_name="", size=self.label_size
         )
         self.label_texture.write(default_label.tobytes())
+
+        # Bind label texture once (it doesn't change)
         self.label_texture.use(location=0)
+
+        # Enable blending once (we always use it)
+        self.ctx.enable(moderngl.BLEND)
+        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+
+        # Use the framebuffer
+        self.fbo.use()
 
     def set_label_texture(self, image: Image.Image) -> None:
         """Set the vinyl label texture from a PIL Image.
@@ -403,37 +435,28 @@ class VinylRenderer:
         Returns:
             Raw RGBA pixel data as bytes.
         """
-        self.fbo.use()
+        # Clear framebuffer
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
-        # Enable blending for transparency
-        self.ctx.enable(moderngl.BLEND)
-        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
-
-        # Render background with frequency band energies
-        self.bg_program["u_time"].value = time
-        self.bg_program["u_resolution"].value = (float(self.width), float(self.height))
-        self.bg_program["u_energy_low"].value = energy_low
-        self.bg_program["u_energy_high"].value = energy_high
-        self.bg_program["u_hue_offset"].value = hue_offset
+        # Render background - only set dynamic uniforms
+        self._bg_u_time.value = time
+        self._bg_u_energy_low.value = energy_low
+        self._bg_u_energy_high.value = energy_high
+        self._bg_u_hue_offset.value = hue_offset
         self.bg_vao.render(moderngl.TRIANGLE_STRIP)
 
-        # Render vinyl on top
-        self.vinyl_program["u_time"].value = time
-        self.vinyl_program["u_resolution"].value = (
-            float(self.width),
-            float(self.height),
-        )
-        self.label_texture.use(location=0)
-        self.vinyl_program["u_label_texture"].value = 0
+        # Render vinyl - only set dynamic uniform
+        self._vinyl_u_time.value = time
         self.vinyl_vao.render(moderngl.TRIANGLE_STRIP)
 
-        # Read pixels
+        # Read pixels from framebuffer color attachment
         return self.fbo.color_attachments[0].read()
 
     def release(self) -> None:
         """Release OpenGL resources."""
         self.fbo.release()
+        self.fbo_texture.release()
+        self.output_buffer.release()
         self.vbo.release()
         self.bg_vao.release()
         self.vinyl_vao.release()

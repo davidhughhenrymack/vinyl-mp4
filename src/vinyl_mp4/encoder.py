@@ -107,11 +107,11 @@ class VideoEncoder:
 
         cmd.extend(
             [
-                # Video codec settings
+                # Video codec settings - ultrafast for maximum throughput
                 "-c:v",
                 "libx264",
                 "-preset",
-                "fast",
+                "ultrafast",
                 "-crf",
                 "18",
                 "-pix_fmt",

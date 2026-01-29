@@ -90,7 +90,7 @@ def render_single_frame(args, input_path: Path) -> int:
     print(f"Rendering frame at t={frame_time:.2f}s...")
     frame_data = renderer.render_frame(frame_time, energy_low, energy_high, hue_offset)
 
-    # Convert to PIL Image and save
+    # Convert to PIL Image and save (RGBA format, flip for OpenGL)
     img = Image.frombytes("RGBA", (args.width, args.height), frame_data)
     img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)  # OpenGL is upside down
     img.save(output_path)
@@ -121,17 +121,51 @@ def main() -> int:
         "--output",
         help="Output file (MP4 for video, PNG for --frame)",
     )
+
+    # Resolution presets (mutually exclusive)
+    res_group = parser.add_mutually_exclusive_group()
+    res_group.add_argument(
+        "--480p",
+        action="store_true",
+        dest="res_480p",
+        help="Output at 480p (854x480)",
+    )
+    res_group.add_argument(
+        "--720p",
+        action="store_true",
+        dest="res_720p",
+        help="Output at 720p (1280x720)",
+    )
+    res_group.add_argument(
+        "--1080p",
+        action="store_true",
+        dest="res_1080p",
+        help="Output at 1080p (1920x1080)",
+    )
+    res_group.add_argument(
+        "--1440p",
+        action="store_true",
+        dest="res_1440p",
+        help="Output at 1440p/2K (2560x1440)",
+    )
+    res_group.add_argument(
+        "--4k",
+        action="store_true",
+        dest="res_4k",
+        help="Output at 4K (3840x2160) [default]",
+    )
+
     parser.add_argument(
         "--width",
         type=int,
-        default=3840,
-        help="Output video width (default: 3840)",
+        default=None,
+        help="Output video width (default: 3840, overrides resolution presets)",
     )
     parser.add_argument(
         "--height",
         type=int,
-        default=2160,
-        help="Output video height (default: 2160)",
+        default=None,
+        help="Output video height (default: 2160, overrides resolution presets)",
     )
     parser.add_argument(
         "--fps",
@@ -159,6 +193,36 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    # Resolve resolution from presets or explicit width/height
+    resolution_presets = {
+        "res_480p": (854, 480),
+        "res_720p": (1280, 720),
+        "res_1080p": (1920, 1080),
+        "res_1440p": (2560, 1440),
+        "res_4k": (3840, 2160),
+    }
+
+    # Check if any preset is selected
+    selected_preset = None
+    for preset, (w, h) in resolution_presets.items():
+        if getattr(args, preset, False):
+            selected_preset = (w, h)
+            break
+
+    # Explicit width/height override presets, presets override defaults
+    if args.width is not None and args.height is not None:
+        pass  # Use explicit values
+    elif args.width is not None or args.height is not None:
+        # Partial override - fill in from preset or default
+        base_w, base_h = selected_preset or (3840, 2160)
+        args.width = args.width or base_w
+        args.height = args.height or base_h
+    elif selected_preset:
+        args.width, args.height = selected_preset
+    else:
+        # Default to 4K
+        args.width, args.height = 3840, 2160
 
     # Validate input file exists
     input_path = Path(args.input)
