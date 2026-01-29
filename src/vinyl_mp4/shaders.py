@@ -32,62 +32,42 @@ uniform float u_hue_offset;
 in vec2 v_uv;
 out vec4 fragColor;
 
-// Colormap functions from Shadertoy tdG3Rd
-float colormap_red(float x) {
-    if (x < 0.0) {
-        return 54.0 / 255.0;
-    } else if (x < 20049.0 / 82979.0) {
-        return (829.79 * x + 54.51) / 255.0;
-    } else {
-        return 1.0;
-    }
-}
-
-float colormap_green(float x) {
-    if (x < 20049.0 / 82979.0) {
-        return 0.0;
-    } else if (x < 327013.0 / 810990.0) {
-        return (8546482679670.0 / 10875673217.0 * x - 2064961390770.0 / 10875673217.0) / 255.0;
-    } else if (x <= 1.0) {
-        return (103806720.0 / 483977.0 * x + 19607415.0 / 483977.0) / 255.0;
-    } else {
-        return 1.0;
-    }
-}
-
-float colormap_blue(float x) {
-    if (x < 0.0) {
-        return 54.0 / 255.0;
-    } else if (x < 7249.0 / 82979.0) {
-        return (829.79 * x + 54.51) / 255.0;
-    } else if (x < 20049.0 / 82979.0) {
-        return 127.0 / 255.0;
-    } else if (x < 327013.0 / 810990.0) {
-        return (792.02249341361393720147485376583 * x - 64.364790735602331034989206222672) / 255.0;
-    } else {
-        return 1.0;
-    }
-}
-
-vec3 colormap(float x) {
-    return vec3(colormap_red(x), colormap_green(x), colormap_blue(x));
-}
-
-// RGB to HSV conversion
-vec3 rgb2hsv(vec3 c) {
-    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-    float d = q.x - min(q.w, q.y);
-    float e = 1.0e-10;
-    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-
 // HSV to RGB conversion
 vec3 hsv2rgb(vec3 c) {
     vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+// Harmonious colormap - stays within narrow hue band
+// Maps pattern value (0-1) to dark -> saturated -> light
+// Uses master hue as the center of the palette
+vec3 harmonious_colormap(float x, float master_hue) {
+    // Narrow hue variation: +/- 0.04 around master hue (about 15 degrees)
+    float hue_variation = (x - 0.5) * 0.08;
+    float hue = fract(master_hue + hue_variation);
+    
+    // Three-point gradient: dark -> saturated -> light
+    float sat, val;
+    
+    if (x < 0.4) {
+        // Dark region: low brightness, medium-high saturation
+        float t = x / 0.4;
+        sat = mix(0.6, 0.85, t);
+        val = mix(0.12, 0.35, t);
+    } else if (x < 0.7) {
+        // Saturated region: high saturation, medium brightness
+        float t = (x - 0.4) / 0.3;
+        sat = mix(0.85, 0.9, t);
+        val = mix(0.35, 0.65, t);
+    } else {
+        // Light region: lower saturation, high brightness
+        float t = (x - 0.7) / 0.3;
+        sat = mix(0.9, 0.35, t);
+        val = mix(0.65, 0.92, t);
+    }
+    
+    return hsv2rgb(vec3(hue, sat, val));
 }
 
 // Random function
@@ -115,7 +95,7 @@ const mat2 mtx = mat2(0.80, 0.60, -0.60, 0.80);
 float fbm(vec2 p, float time, float amp_mod) {
     float f = 0.0;
 
-    f += 0.500000 * (1.0 + amp_mod * 0.2) * noise(p + time); p = mtx * p * 2.02;
+    f += 0.500000 * (1.0 + amp_mod * 0.5) * noise(p + time); p = mtx * p * 2.02;
     f += 0.031250 * noise(p); p = mtx * p * 2.01;
     f += 0.250000 * noise(p); p = mtx * p * 2.03;
     f += 0.125000 * noise(p); p = mtx * p * 2.01;
@@ -135,14 +115,13 @@ float pattern(vec2 p, float time, float amp_mod, float warp_intensity) {
 }
 
 // Get color at a UV position (for blur sampling)
-vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float hue_off, float hue_shift, float brightness) {
+vec3 getColorAt(vec2 uv, float time, float scale, float amp_mod, float warp_mod, float master_hue, float brightness) {
     vec2 scaled_uv = uv * scale;
     float shade = pattern(scaled_uv, time, amp_mod, warp_mod);
-    vec3 rgb = colormap(shade);
-    vec3 hsv = rgb2hsv(rgb);
-    hsv.x = fract(hsv.x + hue_off + hue_shift);
-    hsv.z = min(1.0, hsv.z * brightness);
-    return hsv2rgb(hsv);
+    vec3 rgb = harmonious_colormap(shade, master_hue);
+    // Apply brightness modulation from high frequency
+    rgb = rgb * brightness;
+    return clamp(rgb, 0.0, 1.0);
 }
 
 void main() {
@@ -153,16 +132,17 @@ void main() {
     vec2 uv = v_uv - 0.5;  // Center at origin (-0.5 to 0.5)
     uv.x *= u_resolution.x / u_resolution.y;
     
-    // Low frequency (bass) controls pattern scale - gentle zoom anchored at center
-    float scale = 2.8 + u_energy_low * 0.15;  // Gentler scaling effect
+    // Low frequency (bass) controls pattern scale - zoom anchored at center
+    float scale = 2.8 + u_energy_low * 0.4;  // Stronger bass response
     
-    // Precompute color parameters
-    float slow_hue_shift = sin(u_time * 3.14159 / 1800.0) * 0.15;
+    // Master hue: base offset + slow drift over time (30 min cycle)
+    float master_hue = fract(u_hue_offset + sin(u_time * 3.14159 / 1800.0) * 0.15);
+    
+    // Brightness modulation from high frequency
     float brightness = 0.85 + u_energy_high * 0.3;
     
-    // Mild blur effect controlled by low frequency energy
-    // Blur radius increases with bass energy
-    float blur_radius = u_energy_low * 0.012;  // Mild blur
+    // Blur effect controlled by low frequency energy
+    float blur_radius = u_energy_low * 0.025;  // Stronger bass blur
     
     vec3 rgb;
     if (blur_radius > 0.001) {
@@ -171,30 +151,30 @@ void main() {
         float total_weight = 0.0;
         
         // Center sample (highest weight)
-        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * 0.25;
+        rgb += getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * 0.25;
         total_weight += 0.25;
         
         // Cardinal directions
         float w1 = 0.125;
-        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
-        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
-        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
-        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w1;
+        rgb += getColorAt(uv + vec2(blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
+        rgb += getColorAt(uv + vec2(-blur_radius, 0.0), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
+        rgb += getColorAt(uv + vec2(0.0, blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
+        rgb += getColorAt(uv + vec2(0.0, -blur_radius), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w1;
         total_weight += w1 * 4.0;
         
         // Diagonal directions (lower weight)
         float w2 = 0.0625;
         float diag = blur_radius * 0.707;
-        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
-        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
-        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
-        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness) * w2;
+        rgb += getColorAt(uv + vec2(diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
+        rgb += getColorAt(uv + vec2(-diag, diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
+        rgb += getColorAt(uv + vec2(diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
+        rgb += getColorAt(uv + vec2(-diag, -diag), time, scale, u_energy_low, u_energy_mid, master_hue, brightness) * w2;
         total_weight += w2 * 4.0;
         
         rgb /= total_weight;
     } else {
         // No blur - single sample
-        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, u_hue_offset, slow_hue_shift, brightness);
+        rgb = getColorAt(uv, time, scale, u_energy_low, u_energy_mid, master_hue, brightness);
     }
     
     fragColor = vec4(rgb, 1.0);
