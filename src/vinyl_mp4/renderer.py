@@ -175,24 +175,66 @@ def create_label_texture(
     font_logo = _load_font(FONT_PATHS_BOLD, int(size * 0.10))
     font_curved = _load_font(FONT_PATHS_RIM, int(size * 0.038))
 
-    # Truncate long text
-    max_chars = 16
-    display_title = title[:max_chars] + "..." if len(title) > max_chars else title
-    display_artist = artist[:max_chars] + "..." if len(artist) > max_chars else artist
+    # Maximum width for text (from edge of stripe to near edge of label)
+    max_text_width = int(size * 0.32)
+    line_height = int(size * 0.07)
+    
+    # Helper to wrap text to fit width
+    def wrap_text(text: str, font, max_width: int) -> list[str]:
+        """Wrap text to fit within max_width, returns list of lines."""
+        words = text.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            test_line = f"{current_line} {word}".strip()
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            if bbox[2] - bbox[0] <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        
+        if current_line:
+            lines.append(current_line)
+        
+        # If a single word is too long, truncate it
+        final_lines = []
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            if bbox[2] - bbox[0] > max_width:
+                # Truncate with ellipsis
+                while len(line) > 3:
+                    line = line[:-1]
+                    test = line + "..."
+                    bbox = draw.textbbox((0, 0), test, font=font)
+                    if bbox[2] - bbox[0] <= max_width:
+                        line = test
+                        break
+            final_lines.append(line)
+        
+        return final_lines[:3]  # Max 3 lines
 
-    # Draw artist name (left side of center) - uppercase for Bebas
-    artist_text = display_artist.upper()
-    artist_bbox = draw.textbbox((0, 0), artist_text, font=font_main)
-    artist_width = artist_bbox[2] - artist_bbox[0]
-    artist_x = int(size * 0.43) - artist_width
+    # Draw artist name (left side of center) - uppercase, right-aligned
+    artist_text = artist.upper()
+    artist_lines = wrap_text(artist_text, font_main, max_text_width)
+    artist_x_right = int(size * 0.43)  # Right edge of artist text area
     artist_y = int(size * 0.38)
-    draw.text((artist_x, artist_y), artist_text, fill=text_dark, font=font_main)
+    for i, line in enumerate(artist_lines):
+        bbox = draw.textbbox((0, 0), line, font=font_main)
+        line_width = bbox[2] - bbox[0]
+        draw.text((artist_x_right - line_width, artist_y + i * line_height), 
+                  line, fill=text_dark, font=font_main)
 
-    # Draw title (right side of center) - uppercase for Bebas
-    title_text = display_title.upper()
+    # Draw title (right side of center) - uppercase, left-aligned with word wrap
+    title_text = title.upper()
+    title_lines = wrap_text(title_text, font_main, max_text_width)
     title_x = int(size * 0.57)
     title_y = int(size * 0.38)
-    draw.text((title_x, title_y), title_text, fill=text_dark, font=font_main)
+    for i, line in enumerate(title_lines):
+        draw.text((title_x, title_y + i * line_height), 
+                  line, fill=text_dark, font=font_main)
 
     # Draw "DM" logo - horizontally centered, above the vertical stripe (after OpenGL flip)
     logo_text = "DM"
