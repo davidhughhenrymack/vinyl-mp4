@@ -13,8 +13,11 @@ Run (recommended):
 from __future__ import annotations
 
 import argparse
+import collections
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -34,6 +37,7 @@ class JobResult:
     job: Job
     returncode: int
     stderr_tail: str
+    last_percent: Optional[int]
 
 
 def _build_output_path(
@@ -48,17 +52,102 @@ def _build_output_path(
 
 
 def _run_job(job: Job) -> JobResult:
+    raise RuntimeError(
+        "_run_job is unused; jobs are managed with Popen for live progress."
+    )
+
+
+def _job_cmd(job: Job) -> list[str]:
     cmd = [sys.executable, "-m", "vinyl_mp4", str(job.mp3_path)]
     if job.output_path is not None:
         cmd += ["-o", str(job.output_path)]
     if job.limit is not None:
         cmd += ["--limit", str(job.limit)]
+    return cmd
 
-    # Keep stdout quiet so progress stays readable. On failure, return stderr tail.
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    stderr = (proc.stderr or "").strip()
-    stderr_tail = "\n".join(stderr.splitlines()[-25:]) if stderr else ""
-    return JobResult(job=job, returncode=proc.returncode, stderr_tail=stderr_tail)
+
+def _format_running(names: list[str], max_chars: int = 60) -> str:
+    # Show a compact list of currently running jobs.
+    parts: list[str] = []
+    used = 0
+    for n in names:
+        item = n
+        if parts:
+            item = ", " + item
+        if used + len(item) > max_chars:
+            if parts:
+                parts.append(", …")
+            else:
+                parts.append("…")
+            break
+        parts.append(item)
+        used += len(item)
+    return "".join(parts) if parts else "-"
+
+
+def _extract_latest_percent(text: str) -> Optional[int]:
+    # tqdm looks like: "Rendering:  18%|█▊        | ..."
+    marker = "%|"
+    idx = text.rfind(marker)
+    if idx == -1:
+        return None
+    j = idx - 1
+    while j >= 0 and text[j].isdigit():
+        j -= 1
+    num = text[j + 1 : idx]
+    if not num:
+        return None
+    try:
+        p = int(num)
+    except ValueError:
+        return None
+    if 0 <= p <= 100:
+        return p
+    return None
+
+
+@dataclass
+class _Running:
+    proc: subprocess.Popen[bytes]
+    job: Job
+    started_at: float
+    stderr_tail: collections.deque[str]
+    last_percent: Optional[int]
+    reader: threading.Thread
+
+
+def _stderr_reader(r: _Running) -> None:
+    # Read tqdm output from stderr continuously, track last percent,
+    # and keep a small tail for failures.
+    if r.proc.stderr is None:
+        return
+
+    buf = ""
+    while True:
+        chunk = r.proc.stderr.read(4096)
+        if not chunk:
+            break
+
+        s = chunk.decode("utf-8", errors="replace")
+        if not s:
+            continue
+
+        latest = _extract_latest_percent(s)
+        if latest is not None:
+            r.last_percent = latest
+
+        buf += s
+        if "\r" in buf:
+            buf = buf.replace("\r", "\n")
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
+            line = line.strip()
+            if not line:
+                continue
+            latest_line = _extract_latest_percent(line)
+            if latest_line is not None:
+                r.last_percent = latest_line
+            r.stderr_tail.append(line)
 
 
 def main() -> int:
@@ -130,28 +219,88 @@ def main() -> int:
             print(f"- {j.mp3_path} -> {out}  limit={limit}")
         return 0
 
-    # Queue + run up to max_parallel at once.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     failures: list[JobResult] = []
-    with ThreadPoolExecutor(max_workers=max_parallel) as ex:
-        futures = [ex.submit(_run_job, j) for j in jobs]
-        with tqdm(total=len(futures), desc="Converting", unit="file") as pbar:
-            for fut in as_completed(futures):
-                res = fut.result()
-                pbar.update(1)
+    pending = list(jobs)
 
-                name = res.job.mp3_path.name
-                if res.returncode == 0:
-                    tqdm.write(f"OK   {name}")
+    # Keep stdout quiet so progress stays readable. On failure, include stderr tail.
+    running: list[_Running] = []
+    total = len(pending)
+
+    with tqdm(total=total, desc="Converting", unit="file", mininterval=0.2) as pbar:
+        while pending or running:
+            # Start more work (up to max_parallel).
+            while pending and len(running) < max_parallel:
+                job = pending.pop(0)
+                proc: subprocess.Popen[bytes] = subprocess.Popen(
+                    _job_cmd(job),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=False,
+                )
+                r = _Running(
+                    proc=proc,
+                    job=job,
+                    started_at=time.time(),
+                    stderr_tail=collections.deque(maxlen=25),
+                    last_percent=0,
+                    reader=threading.Thread(target=lambda: None),
+                )
+                r.reader = threading.Thread(
+                    target=_stderr_reader, args=(r,), daemon=True
+                )
+                r.reader.start()
+                running.append(r)
+
+            # Update live status even when nothing finishes yet.
+            running_names: list[str] = []
+            for r in running:
+                pct = r.last_percent
+                if pct is None:
+                    running_names.append(f"{r.job.mp3_path.name} ?%")
                 else:
-                    failures.append(res)
-                    tqdm.write(f"FAIL {name} (exit={res.returncode})")
+                    running_names.append(f"{r.job.mp3_path.name} {pct}%")
+            pbar.set_postfix_str(f"running: {_format_running(running_names)}")
+            pbar.refresh()
+
+            # Poll running processes.
+            still_running: list[_Running] = []
+            for r in running:
+                rc = r.proc.poll()
+                if rc is None:
+                    still_running.append(r)
+                    continue
+
+                # Give stderr reader a moment to drain the pipe.
+                r.reader.join(timeout=2)
+                stderr_tail = "\n".join(list(r.stderr_tail))
+
+                pbar.update(1)
+                name = r.job.mp3_path.name
+                pct = r.last_percent
+                pct_txt = f"{pct}%" if pct is not None else "?%"
+                if rc == 0:
+                    tqdm.write(f"OK   {name} ({pct_txt})")
+                else:
+                    failures.append(
+                        JobResult(
+                            job=r.job,
+                            returncode=rc,
+                            stderr_tail=stderr_tail,
+                            last_percent=pct,
+                        )
+                    )
+                    tqdm.write(f"FAIL {name} ({pct_txt}, exit={rc})")
+
+            running = still_running
+            if pending or running:
+                time.sleep(0.5)
 
     if failures:
         print("\nFailures:")
         for res in failures:
             print(f"\n- {res.job.mp3_path} (exit={res.returncode})")
+            if res.last_percent is not None:
+                print(f"  last progress: {res.last_percent}%")
             if res.stderr_tail:
                 print(res.stderr_tail)
         return 1
