@@ -24,8 +24,9 @@ BACKGROUND_FRAGMENT_SHADER = """
 
 uniform float u_time;
 uniform vec2 u_resolution;
-uniform float u_energy_low;   // Bass/kick energy (0-1)
-uniform float u_energy_high;  // Hi-hat/treble energy (0-1)
+uniform float u_energy_low;   // Bass/kick energy (0-1) <250Hz
+uniform float u_energy_mid;   // Vocals/instruments energy (0-1) 250-4000Hz
+uniform float u_energy_high;  // Hi-hat/treble energy (0-1) >4000Hz
 uniform float u_hue_offset;
 
 in vec2 v_uv;
@@ -110,11 +111,11 @@ float noise(vec2 p) {
 // Rotation matrix for FBM
 const mat2 mtx = mat2(0.80, 0.60, -0.60, 0.80);
 
-// Fractal Brownian Motion - with amplitude modulation from low freq
+// Fractal Brownian Motion - with amplitude modulation
 float fbm(vec2 p, float time, float amp_mod) {
     float f = 0.0;
 
-    f += 0.500000 * (1.0 + amp_mod * 0.3) * noise(p + time); p = mtx * p * 2.02;
+    f += 0.500000 * (1.0 + amp_mod * 0.2) * noise(p + time); p = mtx * p * 2.02;
     f += 0.031250 * noise(p); p = mtx * p * 2.01;
     f += 0.250000 * noise(p); p = mtx * p * 2.03;
     f += 0.125000 * noise(p); p = mtx * p * 2.01;
@@ -124,9 +125,13 @@ float fbm(vec2 p, float time, float amp_mod) {
     return f / 0.96875;
 }
 
-// Domain warping pattern with amplitude modulation
-float pattern(vec2 p, float time, float amp_mod) {
-    return fbm(p + fbm(p + fbm(p, time, amp_mod), time, amp_mod), time, amp_mod);
+// Domain warping pattern with warp intensity modulation from mid freq
+float pattern(vec2 p, float time, float amp_mod, float warp_intensity) {
+    // Mid frequency controls domain warp complexity
+    float warp = 0.8 + warp_intensity * 0.4;  // Range 0.8 to 1.2
+    vec2 q = p + fbm(p, time, amp_mod) * warp;
+    vec2 r = q + fbm(q, time, amp_mod) * warp;
+    return fbm(r, time, amp_mod);
 }
 
 void main() {
@@ -137,12 +142,14 @@ void main() {
     vec2 uv = v_uv - 0.5;  // Center at origin (-0.5 to 0.5)
     uv.x *= u_resolution.x / u_resolution.y;
     
-    // Low frequency (bass) controls pattern scale - zoom anchored at center
-    float scale = 2.8 + u_energy_low * 0.4;
+    // Low frequency (bass) controls pattern scale - gentle zoom anchored at center
+    float scale = 2.8 + u_energy_low * 0.15;  // Gentler scaling effect
     uv *= scale;
     
-    // Calculate pattern value with low freq modulating amplitude
-    float shade = pattern(uv, time, u_energy_low);
+    // Calculate pattern value:
+    // - Low freq modulates amplitude
+    // - Mid freq modulates domain warp complexity
+    float shade = pattern(uv, time, u_energy_low, u_energy_mid);
     
     // Get base color from colormap
     vec3 rgb = colormap(shade);

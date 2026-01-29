@@ -70,9 +70,9 @@ vinyl-mp4 input.mp3 [OPTIONS]
 Resolution Presets (mutually exclusive):
   --480p              Output at 480p (854x480)
   --720p              Output at 720p (1280x720) - ~350 fps
-  --1080p             Output at 1080p (1920x1080) - ~160 fps
+  --1080p             Output at 1080p (1920x1080) [default] - ~160 fps
   --1440p             Output at 1440p/2K (2560x1440)
-  --4k                Output at 4K (3840x2160) [default] - ~55 fps
+  --4k                Output at 4K (3840x2160) - ~55 fps
 
 Other Options:
   -o, --output PATH   Output file path (MP4 for video, PNG for --frame)

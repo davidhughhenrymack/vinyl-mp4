@@ -356,6 +356,7 @@ class VinylRenderer:
         self._bg_u_time = self.bg_program["u_time"]
         self._bg_u_resolution = self.bg_program["u_resolution"]
         self._bg_u_energy_low = self.bg_program["u_energy_low"]
+        self._bg_u_energy_mid = self.bg_program["u_energy_mid"]
         self._bg_u_energy_high = self.bg_program["u_energy_high"]
         self._bg_u_hue_offset = self.bg_program["u_hue_offset"]
 
@@ -386,7 +387,7 @@ class VinylRenderer:
         self.label_texture = self.ctx.texture((self.label_size, self.label_size), 4)
         self.label_texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
         default_label = create_label_texture(
-            "Unknown", "Unknown", track_name="", size=self.label_size
+            "CRATE1 2025", "CRATE1 2025", track_name="", size=self.label_size
         )
         self.label_texture.write(default_label.tobytes())
 
@@ -422,13 +423,19 @@ class VinylRenderer:
         self.label_texture.write(image.tobytes())
 
     def render_frame(
-        self, time: float, energy_low: float, energy_high: float, hue_offset: float
+        self,
+        time: float,
+        energy_low: float,
+        energy_mid: float,
+        energy_high: float,
+        hue_offset: float,
     ) -> bytes:
         """Render a single frame.
 
         Args:
             time: Current playback time in seconds.
             energy_low: Low frequency (bass) energy level (0.0-1.0).
+            energy_mid: Mid frequency energy level (0.0-1.0).
             energy_high: High frequency (treble) energy level (0.0-1.0).
             hue_offset: Hue rotation for background colors (0.0-1.0).
 
@@ -441,6 +448,7 @@ class VinylRenderer:
         # Render background - only set dynamic uniforms
         self._bg_u_time.value = time
         self._bg_u_energy_low.value = energy_low
+        self._bg_u_energy_mid.value = energy_mid
         self._bg_u_energy_high.value = energy_high
         self._bg_u_hue_offset.value = hue_offset
         self.bg_vao.render(moderngl.TRIANGLE_STRIP)

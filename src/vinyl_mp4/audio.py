@@ -16,8 +16,9 @@ class AudioEnergy:
     """Audio energy data split into frequency bands."""
 
     total: np.ndarray  # Total energy (0-1)
-    low: np.ndarray  # Low frequency energy (0-1), bass/kick
-    high: np.ndarray  # High frequency energy (0-1), hi-hats/cymbals
+    low: np.ndarray  # Low frequency energy (0-1), bass/kick <250Hz
+    mid: np.ndarray  # Mid frequency energy (0-1), vocals/instruments 250-4000Hz
+    high: np.ndarray  # High frequency energy (0-1), hi-hats/cymbals >4000Hz
 
 
 def load_audio(path: str) -> tuple[np.ndarray, int]:
@@ -58,7 +59,7 @@ def get_metadata(path: str) -> dict[str, str]:
         path: Path to the MP3 file.
 
     Returns:
-        Dict with 'title' and 'artist' keys. Missing tags return "Unknown".
+        Dict with 'title' and 'artist' keys. Missing tags return "CRATE1 2025".
 
     Raises:
         FileNotFoundError: If the file does not exist.
@@ -66,7 +67,7 @@ def get_metadata(path: str) -> dict[str, str]:
     if not Path(path).exists():
         raise FileNotFoundError(f"Audio file not found: {path}")
 
-    result = {"title": "Unknown", "artist": "Unknown"}
+    result = {"title": "CRATE1 2025", "artist": "CRATE1 2025"}
 
     try:
         audio = ID3(path)
@@ -107,10 +108,11 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
 
     if num_frames == 0:
         zeros = np.array([0.0], dtype=np.float32)
-        return AudioEnergy(total=zeros, low=zeros.copy(), high=zeros.copy())
+        return AudioEnergy(total=zeros, low=zeros.copy(), mid=zeros.copy(), high=zeros.copy())
 
     # Design filters for frequency band separation
     # Low pass: 0-250 Hz (bass, kick drums)
+    # Band pass: 250-4000 Hz (vocals, instruments, mid-range)
     # High pass: 4000+ Hz (hi-hats, cymbals, brightness)
     nyquist = sample_rate / 2
     low_cutoff = 250 / nyquist
@@ -118,15 +120,18 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
 
     # Create butterworth filters
     b_low, a_low = scipy_signal.butter(4, low_cutoff, btype="low")
+    b_mid, a_mid = scipy_signal.butter(4, [low_cutoff, high_cutoff], btype="band")
     b_high, a_high = scipy_signal.butter(4, high_cutoff, btype="high")
 
     # Apply filters
     samples_low = scipy_signal.filtfilt(b_low, a_low, samples)
+    samples_mid = scipy_signal.filtfilt(b_mid, a_mid, samples)
     samples_high = scipy_signal.filtfilt(b_high, a_high, samples)
 
     # Compute energy for each band
     energy_total = np.zeros(num_frames, dtype=np.float32)
     energy_low = np.zeros(num_frames, dtype=np.float32)
+    energy_mid = np.zeros(num_frames, dtype=np.float32)
     energy_high = np.zeros(num_frames, dtype=np.float32)
 
     for i in range(num_frames):
@@ -135,11 +140,13 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
 
         frame_total = samples[start:end]
         frame_low = samples_low[start:end]
+        frame_mid = samples_mid[start:end]
         frame_high = samples_high[start:end]
 
         if len(frame_total) > 0:
             energy_total[i] = np.sqrt(np.mean(frame_total**2))
             energy_low[i] = np.sqrt(np.mean(frame_low**2))
+            energy_mid[i] = np.sqrt(np.mean(frame_mid**2))
             energy_high[i] = np.sqrt(np.mean(frame_high**2))
 
     # Normalize each band independently
@@ -160,6 +167,7 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
     return AudioEnergy(
         total=normalize_and_smooth(energy_total, 0.9),
         low=normalize_and_smooth(energy_low, 0.92),
+        mid=normalize_and_smooth(energy_mid, 0.90),
         high=normalize_and_smooth(energy_high, 0.88),
     )
 

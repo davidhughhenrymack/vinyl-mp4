@@ -69,9 +69,10 @@ def render_single_frame(args, input_path: Path) -> int:
     frame_idx = min(frame_idx, len(energy.total) - 1)
 
     energy_low = energy.low[frame_idx]
+    energy_mid = energy.mid[frame_idx]
     energy_high = energy.high[frame_idx]
     print(
-        f"  Frame {frame_idx} at {frame_time:.2f}s: low={energy_low:.3f}, high={energy_high:.3f}"
+        f"  Frame {frame_idx} at {frame_time:.2f}s: low={energy_low:.3f}, mid={energy_mid:.3f}, high={energy_high:.3f}"
     )
 
     # Get hue offset
@@ -88,7 +89,7 @@ def render_single_frame(args, input_path: Path) -> int:
 
     # Render frame
     print(f"Rendering frame at t={frame_time:.2f}s...")
-    frame_data = renderer.render_frame(frame_time, energy_low, energy_high, hue_offset)
+    frame_data = renderer.render_frame(frame_time, energy_low, energy_mid, energy_high, hue_offset)
 
     # Convert to PIL Image and save (RGBA format, flip for OpenGL)
     img = Image.frombytes("RGBA", (args.width, args.height), frame_data)
@@ -140,7 +141,7 @@ def main() -> int:
         "--1080p",
         action="store_true",
         dest="res_1080p",
-        help="Output at 1080p (1920x1080)",
+        help="Output at 1080p (1920x1080) [default]",
     )
     res_group.add_argument(
         "--1440p",
@@ -152,20 +153,20 @@ def main() -> int:
         "--4k",
         action="store_true",
         dest="res_4k",
-        help="Output at 4K (3840x2160) [default]",
+        help="Output at 4K (3840x2160)",
     )
 
     parser.add_argument(
         "--width",
         type=int,
         default=None,
-        help="Output video width (default: 3840, overrides resolution presets)",
+        help="Output video width (default: 1920, overrides resolution presets)",
     )
     parser.add_argument(
         "--height",
         type=int,
         default=None,
-        help="Output video height (default: 2160, overrides resolution presets)",
+        help="Output video height (default: 1080, overrides resolution presets)",
     )
     parser.add_argument(
         "--fps",
@@ -209,20 +210,20 @@ def main() -> int:
         if getattr(args, preset, False):
             selected_preset = (w, h)
             break
-
+    
     # Explicit width/height override presets, presets override defaults
     if args.width is not None and args.height is not None:
         pass  # Use explicit values
     elif args.width is not None or args.height is not None:
         # Partial override - fill in from preset or default
-        base_w, base_h = selected_preset or (3840, 2160)
+        base_w, base_h = selected_preset or (1920, 1080)
         args.width = args.width or base_w
         args.height = args.height or base_h
     elif selected_preset:
         args.width, args.height = selected_preset
     else:
-        # Default to 4K
-        args.width, args.height = 3840, 2160
+        # Default to 1080p
+        args.width, args.height = 1920, 1080
 
     # Validate input file exists
     input_path = Path(args.input)
@@ -321,11 +322,12 @@ def main() -> int:
             for frame_idx in range(num_frames):
                 time = frame_idx / args.fps
                 energy_low = energy.low[frame_idx]
+                energy_mid = energy.mid[frame_idx]
                 energy_high = energy.high[frame_idx]
 
                 # Render frame with frequency band energies
                 frame_data = renderer.render_frame(
-                    time, energy_low, energy_high, hue_offset
+                    time, energy_low, energy_mid, energy_high, hue_offset
                 )
 
                 # Write to encoder
