@@ -1,0 +1,181 @@
+"""Audio loading, metadata extraction, and energy computation."""
+
+import hashlib
+from pathlib import Path
+from dataclasses import dataclass
+
+import numpy as np
+from mutagen.id3 import ID3
+from mutagen.mp3 import MP3
+from pydub import AudioSegment
+from scipy import signal as scipy_signal
+
+
+@dataclass
+class AudioEnergy:
+    """Audio energy data split into frequency bands."""
+
+    total: np.ndarray  # Total energy (0-1)
+    low: np.ndarray  # Low frequency energy (0-1), bass/kick
+    high: np.ndarray  # High frequency energy (0-1), hi-hats/cymbals
+
+
+def load_audio(path: str) -> tuple[np.ndarray, int]:
+    """Load an MP3 file and return samples as numpy array.
+
+    Args:
+        path: Path to the MP3 file.
+
+    Returns:
+        Tuple of (samples as float32 numpy array normalized to -1.0 to 1.0, sample_rate)
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+    """
+    if not Path(path).exists():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+
+    audio = AudioSegment.from_mp3(path)
+
+    # Get raw samples
+    samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+
+    # Handle stereo by averaging channels
+    if audio.channels == 2:
+        samples = samples.reshape((-1, 2)).mean(axis=1)
+
+    # Normalize to -1.0 to 1.0 range
+    max_val = 2 ** (audio.sample_width * 8 - 1)
+    samples = samples / max_val
+
+    return samples, audio.frame_rate
+
+
+def get_metadata(path: str) -> dict[str, str]:
+    """Extract title and artist from MP3 ID3 tags.
+
+    Args:
+        path: Path to the MP3 file.
+
+    Returns:
+        Dict with 'title' and 'artist' keys. Missing tags return "Unknown".
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+    """
+    if not Path(path).exists():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+
+    result = {"title": "Unknown", "artist": "Unknown"}
+
+    try:
+        audio = ID3(path)
+
+        # TIT2 is the ID3 tag for title
+        if "TIT2" in audio:
+            result["title"] = str(audio["TIT2"])
+
+        # TPE1 is the ID3 tag for lead artist
+        if "TPE1" in audio:
+            result["artist"] = str(audio["TPE1"])
+
+    except Exception:
+        # If ID3 tags can't be read, return defaults
+        pass
+
+    return result
+
+
+def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEnergy:
+    """Compute audio energy per video frame, split into frequency bands.
+
+    Uses RMS (root mean square) to calculate energy for each frame window.
+    Splits audio into low (bass) and high (treble) frequency bands.
+    Output is normalized to 0.0-1.0 range with smoothing applied.
+
+    Args:
+        samples: Audio samples as numpy array.
+        sample_rate: Audio sample rate in Hz.
+        fps: Video frames per second.
+
+    Returns:
+        AudioEnergy with total, low, and high frequency energy arrays.
+    """
+    duration = len(samples) / sample_rate
+    num_frames = int(duration * fps)
+    samples_per_frame = len(samples) // num_frames if num_frames > 0 else len(samples)
+
+    if num_frames == 0:
+        zeros = np.array([0.0], dtype=np.float32)
+        return AudioEnergy(total=zeros, low=zeros.copy(), high=zeros.copy())
+
+    # Design filters for frequency band separation
+    # Low pass: 0-250 Hz (bass, kick drums)
+    # High pass: 4000+ Hz (hi-hats, cymbals, brightness)
+    nyquist = sample_rate / 2
+    low_cutoff = 250 / nyquist
+    high_cutoff = 4000 / nyquist
+
+    # Create butterworth filters
+    b_low, a_low = scipy_signal.butter(4, low_cutoff, btype="low")
+    b_high, a_high = scipy_signal.butter(4, high_cutoff, btype="high")
+
+    # Apply filters
+    samples_low = scipy_signal.filtfilt(b_low, a_low, samples)
+    samples_high = scipy_signal.filtfilt(b_high, a_high, samples)
+
+    # Compute energy for each band
+    energy_total = np.zeros(num_frames, dtype=np.float32)
+    energy_low = np.zeros(num_frames, dtype=np.float32)
+    energy_high = np.zeros(num_frames, dtype=np.float32)
+
+    for i in range(num_frames):
+        start = i * samples_per_frame
+        end = min(start + samples_per_frame, len(samples))
+
+        frame_total = samples[start:end]
+        frame_low = samples_low[start:end]
+        frame_high = samples_high[start:end]
+
+        if len(frame_total) > 0:
+            energy_total[i] = np.sqrt(np.mean(frame_total**2))
+            energy_low[i] = np.sqrt(np.mean(frame_low**2))
+            energy_high[i] = np.sqrt(np.mean(frame_high**2))
+
+    # Normalize each band independently
+    def normalize_and_smooth(
+        energy: np.ndarray, smooth_factor: float = 0.85
+    ) -> np.ndarray:
+        max_e = np.max(energy)
+        if max_e > 0:
+            energy = energy / max_e
+        # Apply heavy smoothing for smoother animation
+        smoothed = np.copy(energy)
+        for i in range(1, len(smoothed)):
+            smoothed[i] = (
+                smooth_factor * smoothed[i - 1] + (1 - smooth_factor) * smoothed[i]
+            )
+        return np.clip(smoothed, 0.0, 1.0)
+
+    return AudioEnergy(
+        total=normalize_and_smooth(energy_total, 0.9),
+        low=normalize_and_smooth(energy_low, 0.92),
+        high=normalize_and_smooth(energy_high, 0.88),
+    )
+
+
+def get_hue_offset(filename: str) -> float:
+    """Hash filename to get deterministic hue offset 0.0-1.0.
+
+    Uses MD5 hash of the filename to generate a consistent hue offset
+    for the background color palette. Same filename always produces
+    the same color scheme.
+
+    Args:
+        filename: The filename (not full path) to hash.
+
+    Returns:
+        Float in range 0.0-1.0 representing hue rotation.
+    """
+    h = hashlib.md5(filename.encode()).hexdigest()
+    return int(h[:8], 16) / 0xFFFFFFFF
