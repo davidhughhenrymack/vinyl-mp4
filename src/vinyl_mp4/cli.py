@@ -137,7 +137,7 @@ def render_single_frame(args, input_path: Path) -> int:
     print(f"  Using shader: {renderer.bg_shader.name}")
 
     # Create and set label texture
-    # Track name shown in bold center, title ("CRATE1 2025") on the rim
+    # Track name shown in bold center, title ("DMACK") on the rim
     label_img = create_label_texture(track_name, artist, track_name=title)
     renderer.set_label_texture(label_img)
 

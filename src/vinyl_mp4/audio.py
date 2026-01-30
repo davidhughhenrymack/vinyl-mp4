@@ -59,7 +59,7 @@ def get_metadata(path: str) -> dict[str, str]:
         path: Path to the audio file (MP3 or WAV).
 
     Returns:
-        Dict with 'title' and 'artist' keys. Missing tags return "CRATE1 2025".
+        Dict with 'title' and 'artist' keys. Missing title returns "CRATE1 2025", missing artist returns "DMACK".
         WAV files typically have no metadata so will use defaults.
 
     Raises:
@@ -68,7 +68,7 @@ def get_metadata(path: str) -> dict[str, str]:
     if not Path(path).exists():
         raise FileNotFoundError(f"Audio file not found: {path}")
 
-    result = {"title": "CRATE1 2025", "artist": "CRATE1 2025"}
+    result = {"title": "CRATE1 2025", "artist": "DMACK"}
 
     try:
         audio = ID3(path)

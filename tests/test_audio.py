@@ -50,13 +50,13 @@ class TestGetMetadata:
         assert metadata["artist"] == "Test Artist"
 
     def test_get_metadata_missing_tags(self, sample_mp3: Path):
-        """Returns 'CRATE1 2025' for missing tags."""
+        """Returns defaults for missing tags."""
         from vinyl_mp4.audio import get_metadata
 
         metadata = get_metadata(str(sample_mp3))
 
         assert metadata["title"] == "CRATE1 2025"
-        assert metadata["artist"] == "CRATE1 2025"
+        assert metadata["artist"] == "DMACK"
 
     def test_get_metadata_file_not_found(self, tmp_path: Path):
         """Raises FileNotFoundError for missing file."""
@@ -127,11 +127,11 @@ class TestComputeEnergy:
         # Create a signal with energy in all frequency bands
         # Low: 50Hz, Mid: 440Hz, High: 8000Hz
         samples = (
-            0.3 * np.sin(2 * np.pi * 50 * t) +    # Low frequency
-            0.5 * np.sin(2 * np.pi * 440 * t) +   # Mid frequency
-            0.2 * np.sin(2 * np.pi * 8000 * t)    # High frequency
+            0.3 * np.sin(2 * np.pi * 50 * t)  # Low frequency
+            + 0.5 * np.sin(2 * np.pi * 440 * t)  # Mid frequency
+            + 0.2 * np.sin(2 * np.pi * 8000 * t)  # High frequency
         ).astype(np.float32)
-        
+
         energy = compute_energy(samples, sample_rate, fps)
 
         # All bands should have some energy (after normalization)

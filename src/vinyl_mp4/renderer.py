@@ -416,7 +416,7 @@ class VinylRenderer:
         self.label_texture = self.ctx.texture((self.label_size, self.label_size), 4)
         self.label_texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
         default_label = create_label_texture(
-            "CRATE1 2025", "CRATE1 2025", track_name="", size=self.label_size
+            "CRATE1 2025", "DMACK", track_name="", size=self.label_size
         )
         self.label_texture.write(default_label.tobytes())
 
