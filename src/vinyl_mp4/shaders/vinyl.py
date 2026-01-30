@@ -30,7 +30,9 @@ const float PI = 3.14159265359;
 const float BASE_VINYL_RADIUS = 0.35;
 const float LABEL_RATIO = 0.743;  // Label is ~74% of vinyl radius
 const float HOLE_RATIO = 0.034;   // Hole is ~3.4% of vinyl radius
-const float RPM = 33.0;
+
+// Standard vinyl speeds: 16⅔ RPM (speech), 33⅓ RPM (LP), 45 RPM (single), 78 RPM (shellac)
+const float RPM = 50.0 / 3.0;     // 16⅔ RPM - half speed for visual appeal
 
 // Anti-aliasing edge width (in UV units, relative to screen)
 float aaWidth() {

@@ -178,7 +178,7 @@ def main() -> int:
     parser.add_argument(
         "--max-parallel",
         type=int,
-        default=4,
+        default=2,
         help="Max conversions in parallel (default: 4).",
     )
     # Resolution presets (match vinyl-mp4 CLI)
@@ -253,18 +253,34 @@ def main() -> int:
         extra_args.append("--4k")
 
     jobs: list[Job] = []
+    skipped = 0
     for mp3 in mp3s:
-        out_path = None
+        # Determine expected output path
         if args.output_dir is not None:
             out_path = _build_output_path(args.output_dir, mp3, args.limit)
+        else:
+            # CLI default: output next to the MP3
+            suffix = ""
+            if args.limit is not None:
+                suffix = f"-{int(args.limit)}s"
+            out_path = mp3.parent / f"{mp3.stem}{suffix}.mp4"
+
+        # Skip if output already exists
+        if out_path.exists():
+            skipped += 1
+            continue
+
         jobs.append(
             Job(
                 mp3_path=mp3,
-                output_path=out_path,
+                output_path=out_path if args.output_dir is not None else None,
                 limit=args.limit,
                 extra_args=tuple(extra_args),
             )
         )
+
+    if skipped:
+        print(f"Skipping {skipped} file(s) with existing MP4 output.")
 
     if args.dry_run:
         for j in jobs:
