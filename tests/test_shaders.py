@@ -143,13 +143,19 @@ class TestShaderRegistry:
 
         assert len(SHADER_REGISTRY) > 0
 
-    def test_registry_has_two_shaders(self):
-        """Registry contains FBM Warp and Melted Sphere shaders."""
-        from vinyl_mp4.shaders import SHADER_REGISTRY, FbmWarpShader, MeltedSphereShader
+    def test_registry_has_all_shaders(self):
+        """Registry contains all expected shaders."""
+        from vinyl_mp4.shaders import (
+            SHADER_REGISTRY,
+            FbmWarpShader,
+            MeltedSphereShader,
+            AuroraWaveShader,
+        )
 
         shader_classes = [s for s in SHADER_REGISTRY]
         assert FbmWarpShader in shader_classes
         assert MeltedSphereShader in shader_classes
+        assert AuroraWaveShader in shader_classes
 
     def test_all_shaders_compile(self):
         """All registered shaders compile successfully."""
@@ -174,10 +180,12 @@ class TestShaderRegistry:
             get_shader_class,
             FbmWarpShader,
             MeltedSphereShader,
+            AuroraWaveShader,
         )
 
         assert get_shader_class(0) == FbmWarpShader
         assert get_shader_class(1) == MeltedSphereShader
+        assert get_shader_class(2) == AuroraWaveShader
 
     def test_get_shader_class_wraps_index(self):
         """Index wraps around registry length."""
@@ -192,7 +200,7 @@ class TestShaderRegistry:
         from vinyl_mp4.shaders import get_num_shaders, SHADER_REGISTRY
 
         assert get_num_shaders() == len(SHADER_REGISTRY)
-        assert get_num_shaders() >= 2  # At least two shaders
+        assert get_num_shaders() >= 3  # At least three shaders
 
 
 class TestMeltedSphereShader:
@@ -274,3 +282,53 @@ class TestFbmWarpShader:
 
         shader = FbmWarpShader()
         assert shader.name == "FBM Warp"
+
+
+class TestAuroraWaveShader:
+    """Tests for the Aurora Wave shader."""
+
+    def test_shader_compiles(self):
+        """Aurora wave shader compiles."""
+        import moderngl
+        from vinyl_mp4.shaders import AuroraWaveShader
+
+        ctx = moderngl.create_standalone_context()
+        try:
+            shader = AuroraWaveShader()
+            programs = shader.create_programs(ctx)
+            assert "main" in programs
+        finally:
+            ctx.release()
+
+    def test_does_not_need_noise_texture(self):
+        """Aurora wave shader does not need noise texture."""
+        from vinyl_mp4.shaders import AuroraWaveShader
+
+        shader = AuroraWaveShader()
+        assert shader.needs_noise_texture is False
+
+    def test_shader_name(self):
+        """Shader has correct name."""
+        from vinyl_mp4.shaders import AuroraWaveShader
+
+        shader = AuroraWaveShader()
+        assert shader.name == "Aurora Wave"
+
+    def test_has_audio_uniforms(self):
+        """Shader has energy uniforms for audio reactivity."""
+        import moderngl
+        from vinyl_mp4.shaders import AuroraWaveShader
+
+        ctx = moderngl.create_standalone_context()
+        try:
+            shader = AuroraWaveShader()
+            programs = shader.create_programs(ctx)
+            program = programs["main"]
+
+            # Check audio reactivity uniforms
+            assert "u_energy_low" in program
+            assert "u_energy_mid" in program
+            assert "u_energy_high" in program
+            assert "u_hue_offset" in program
+        finally:
+            ctx.release()
