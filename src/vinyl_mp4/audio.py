@@ -22,10 +22,10 @@ class AudioEnergy:
 
 
 def load_audio(path: str) -> tuple[np.ndarray, int]:
-    """Load an MP3 file and return samples as numpy array.
+    """Load an audio file and return samples as numpy array.
 
     Args:
-        path: Path to the MP3 file.
+        path: Path to the audio file (MP3 or WAV).
 
     Returns:
         Tuple of (samples as float32 numpy array normalized to -1.0 to 1.0, sample_rate)
@@ -36,7 +36,7 @@ def load_audio(path: str) -> tuple[np.ndarray, int]:
     if not Path(path).exists():
         raise FileNotFoundError(f"Audio file not found: {path}")
 
-    audio = AudioSegment.from_mp3(path)
+    audio = AudioSegment.from_file(path)
 
     # Get raw samples
     samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
@@ -53,13 +53,14 @@ def load_audio(path: str) -> tuple[np.ndarray, int]:
 
 
 def get_metadata(path: str) -> dict[str, str]:
-    """Extract title and artist from MP3 ID3 tags.
+    """Extract title and artist from audio file metadata.
 
     Args:
-        path: Path to the MP3 file.
+        path: Path to the audio file (MP3 or WAV).
 
     Returns:
         Dict with 'title' and 'artist' keys. Missing tags return "CRATE1 2025".
+        WAV files typically have no metadata so will use defaults.
 
     Raises:
         FileNotFoundError: If the file does not exist.

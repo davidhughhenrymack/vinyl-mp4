@@ -166,12 +166,12 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(
         prog="vinyl-mp4",
-        description="Convert MP3 files to MP4 videos with audio-reactive vinyl visualization",
+        description="Convert audio files to MP4 videos with audio-reactive vinyl visualization",
     )
 
     parser.add_argument(
         "input",
-        help="Input MP3 file",
+        help="Input audio file (MP3 or WAV)",
     )
     parser.add_argument(
         "-o",

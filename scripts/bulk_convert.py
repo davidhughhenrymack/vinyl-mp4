@@ -2,7 +2,7 @@
 Bulk conversion helper for vinyl-mp4.
 
 What it does:
-- Lists MP3s in a media directory
+- Lists audio files (MP3/WAV) in a media directory
 - Queues them for conversion
 - Converts up to N in parallel (default: 4)
 
@@ -25,9 +25,12 @@ from typing import Optional
 from tqdm import tqdm
 
 
+SUPPORTED_EXTENSIONS = {".mp3", ".wav"}
+
+
 @dataclass(frozen=True)
 class Job:
-    mp3_path: Path
+    audio_path: Path
     output_path: Optional[Path]
     limit: Optional[float]
     extra_args: tuple[str, ...] = ()
@@ -42,14 +45,14 @@ class JobResult:
 
 
 def _build_output_path(
-    output_dir: Path, mp3_path: Path, limit: Optional[float]
+    output_dir: Path, audio_path: Path, limit: Optional[float]
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     suffix = ""
     if limit is not None:
         # Keep consistent with CLI default naming: "-{int(limit)}s"
         suffix = f"-{int(limit)}s"
-    return output_dir / f"{mp3_path.stem}{suffix}.mp4"
+    return output_dir / f"{audio_path.stem}{suffix}.mp4"
 
 
 def _run_job(job: Job) -> JobResult:
@@ -59,7 +62,7 @@ def _run_job(job: Job) -> JobResult:
 
 
 def _job_cmd(job: Job) -> list[str]:
-    cmd = [sys.executable, "-m", "vinyl_mp4", str(job.mp3_path)]
+    cmd = [sys.executable, "-m", "vinyl_mp4", str(job.audio_path)]
     cmd += list(job.extra_args)
     if job.output_path is not None:
         cmd += ["-o", str(job.output_path)]
@@ -155,13 +158,13 @@ def _stderr_reader(r: _Running) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="bulk_convert",
-        description="Bulk convert MP3s in a directory using vinyl-mp4 (max 4 in parallel).",
+        description="Bulk convert audio files in a directory using vinyl-mp4 (max 4 in parallel).",
     )
     parser.add_argument(
         "--media-dir",
         type=Path,
         default=Path("media"),
-        help="Directory containing MP3 files (default: ./media)",
+        help="Directory containing audio files (default: ./media)",
     )
     parser.add_argument(
         "--output-dir",
@@ -225,11 +228,13 @@ def main() -> int:
     if not media_dir.exists() or not media_dir.is_dir():
         raise SystemExit(f"media dir not found: {media_dir}")
 
-    mp3s = sorted(
-        p for p in media_dir.iterdir() if p.is_file() and p.suffix.lower() == ".mp3"
+    audio_files = sorted(
+        p
+        for p in media_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
     )
-    if not mp3s:
-        print(f"No mp3 files found in: {media_dir}")
+    if not audio_files:
+        print(f"No audio files found in: {media_dir}")
         return 0
 
     max_parallel = args.max_parallel
@@ -254,16 +259,16 @@ def main() -> int:
 
     jobs: list[Job] = []
     skipped = 0
-    for mp3 in mp3s:
+    for audio_file in audio_files:
         # Determine expected output path
         if args.output_dir is not None:
-            out_path = _build_output_path(args.output_dir, mp3, args.limit)
+            out_path = _build_output_path(args.output_dir, audio_file, args.limit)
         else:
-            # CLI default: output next to the MP3
+            # CLI default: output next to the audio file
             suffix = ""
             if args.limit is not None:
                 suffix = f"-{int(args.limit)}s"
-            out_path = mp3.parent / f"{mp3.stem}{suffix}.mp4"
+            out_path = audio_file.parent / f"{audio_file.stem}{suffix}.mp4"
 
         # Skip if output already exists
         if out_path.exists():
@@ -272,7 +277,7 @@ def main() -> int:
 
         jobs.append(
             Job(
-                mp3_path=mp3,
+                audio_path=audio_file,
                 output_path=out_path if args.output_dir is not None else None,
                 limit=args.limit,
                 extra_args=tuple(extra_args),
@@ -284,9 +289,9 @@ def main() -> int:
 
     if args.dry_run:
         for j in jobs:
-            out = str(j.output_path) if j.output_path else "(cli default рядом с mp3)"
+            out = str(j.output_path) if j.output_path else "(cli default)"
             limit = j.limit if j.limit is not None else "(no limit)"
-            print(f"- {j.mp3_path} -> {out}  limit={limit}")
+            print(f"- {j.audio_path} -> {out}  limit={limit}")
         return 0
 
     failures: list[JobResult] = []
@@ -326,9 +331,9 @@ def main() -> int:
             for r in running:
                 pct = r.last_percent
                 if pct is None:
-                    running_names.append(f"{r.job.mp3_path.name} ?%")
+                    running_names.append(f"{r.job.audio_path.name} ?%")
                 else:
-                    running_names.append(f"{r.job.mp3_path.name} {pct}%")
+                    running_names.append(f"{r.job.audio_path.name} {pct}%")
             pbar.set_postfix_str(f"running: {_format_running(running_names)}")
             pbar.refresh()
 
@@ -345,7 +350,7 @@ def main() -> int:
                 stderr_tail = "\n".join(list(r.stderr_tail))
 
                 pbar.update(1)
-                name = r.job.mp3_path.name
+                name = r.job.audio_path.name
                 pct = r.last_percent
                 pct_txt = f"{pct}%" if pct is not None else "?%"
                 if rc == 0:
@@ -368,7 +373,7 @@ def main() -> int:
     if failures:
         print("\nFailures:")
         for res in failures:
-            print(f"\n- {res.job.mp3_path} (exit={res.returncode})")
+            print(f"\n- {res.job.audio_path} (exit={res.returncode})")
             if res.last_percent is not None:
                 print(f"  last progress: {res.last_percent}%")
             if res.stderr_tail:
