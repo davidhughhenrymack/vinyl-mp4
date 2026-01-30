@@ -137,8 +137,9 @@ def render_single_frame(args, input_path: Path) -> int:
     print(f"  Using shader: {renderer.bg_shader.name}")
 
     # Create and set label texture
-    # Track name shown in bold center, title ("DMACK") on the rim
-    label_img = create_label_texture(track_name, artist, track_name=title)
+    # Track name shown in bold center, rim text on the rim
+    rim_text = args.rim_text if args.rim_text else title
+    label_img = create_label_texture(track_name, artist, track_name=rim_text)
     renderer.set_label_texture(label_img)
 
     # Render frame
@@ -259,6 +260,12 @@ def main() -> int:
         type=str,
         default=None,
         help=f"Base color for shader (available: {', '.join(get_color_names())})",
+    )
+    parser.add_argument(
+        "--rim-text",
+        type=str,
+        default=None,
+        help="Text to display around the vinyl rim (default: from audio metadata title)",
     )
 
     args = parser.parse_args()
@@ -401,8 +408,9 @@ def main() -> int:
         )
         print(f"  Using shader: {renderer.bg_shader.name}")
 
-        # Create and set label texture with track name in bold center, title on rim
-        label_img = create_label_texture(track_name, artist, track_name=title)
+        # Create and set label texture with track name in bold center, rim text on rim
+        rim_text = args.rim_text if args.rim_text else title
+        label_img = create_label_texture(track_name, artist, track_name=rim_text)
         renderer.set_label_texture(label_img)
 
         # Initialize encoder
