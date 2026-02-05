@@ -139,6 +139,7 @@ def render_single_frame(args, input_path: Path) -> int:
     # Create and set label texture
     # Track name shown in bold center, rim text on the rim
     rim_text = args.rim_text if args.rim_text else title
+    print(f"  Rim text: {rim_text}")
     label_img = create_label_texture(track_name, artist, track_name=rim_text)
     renderer.set_label_texture(label_img)
 
@@ -236,6 +237,12 @@ def main() -> int:
         type=float,
         default=None,
         help="Limit output to first N seconds of audio",
+    )
+    parser.add_argument(
+        "--start",
+        type=float,
+        default=None,
+        help="Start processing from N seconds into the audio (skip beginning)",
     )
     parser.add_argument(
         "--name",
@@ -338,6 +345,15 @@ def main() -> int:
         print(f"  Full duration: {full_duration:.2f}s")
         print(f"  Sample rate: {sample_rate}Hz")
 
+        # Apply start offset if specified
+        start_offset = 0.0
+        if args.start is not None and args.start > 0:
+            start_offset = min(args.start, full_duration)
+            start_samples = int(start_offset * sample_rate)
+            samples = samples[start_samples:]
+            full_duration = len(samples) / sample_rate
+            print(f"  Starting from: {start_offset:.2f}s")
+
         # Apply limit if specified
         if args.limit is not None and args.limit < full_duration:
             limit_samples = int(args.limit * sample_rate)
@@ -410,6 +426,7 @@ def main() -> int:
 
         # Create and set label texture with track name in bold center, rim text on rim
         rim_text = args.rim_text if args.rim_text else title
+        print(f"  Rim text: {rim_text}")
         label_img = create_label_texture(track_name, artist, track_name=rim_text)
         renderer.set_label_texture(label_img)
 
@@ -433,6 +450,7 @@ def main() -> int:
             height=args.height,
             fps=args.fps,
             duration_limit=args.limit,
+            start_offset=start_offset if start_offset > 0 else None,
         )
 
         # Randomize shader time start so videos don't all begin on the same frame.

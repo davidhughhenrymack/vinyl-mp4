@@ -57,6 +57,7 @@ class VideoEncoder:
         height: int,
         fps: int,
         duration_limit: Optional[float] = None,
+        start_offset: Optional[float] = None,
     ):
         """Initialize the encoder and start FFmpeg process.
 
@@ -67,6 +68,7 @@ class VideoEncoder:
             height: Video frame height in pixels.
             fps: Video frames per second.
             duration_limit: Optional limit on output duration in seconds.
+            start_offset: Optional start position in seconds to seek into audio.
 
         Raises:
             FFmpegNotFoundError: If FFmpeg is not installed.
@@ -77,6 +79,7 @@ class VideoEncoder:
         self.height = height
         self.fps = fps
         self.duration_limit = duration_limit
+        self.start_offset = start_offset
 
         # Build FFmpeg command
         # Input: raw RGBA video from stdin
@@ -99,10 +102,12 @@ class VideoEncoder:
             str(fps),
             "-i",
             "pipe:0",
-            # Audio input
-            "-i",
-            audio_path,
         ]
+
+        # Add audio input with optional seek
+        if start_offset is not None and start_offset > 0:
+            cmd.extend(["-ss", str(start_offset)])
+        cmd.extend(["-i", audio_path])
 
         # Add duration limit if specified
         if duration_limit is not None:
