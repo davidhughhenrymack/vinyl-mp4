@@ -88,6 +88,7 @@ from .fbm_warp import VERTEX_SHADER as BACKGROUND_VERTEX_SHADER  # noqa: E402, F
 from .fbm_warp import FRAGMENT_SHADER as BACKGROUND_FRAGMENT_SHADER  # noqa: E402, F401
 from .melted_sphere import MeltedSphereShader  # noqa: E402, F401
 from .aurora_wave import AuroraWaveShader  # noqa: E402, F401
+from .retro_terrain import RetroTerrainShader  # noqa: E402, F401
 
 # Import vinyl shader constants
 from .vinyl import VINYL_VERTEX_SHADER, VINYL_FRAGMENT_SHADER  # noqa: E402, F401
@@ -109,6 +110,7 @@ __all__ = [
     "FbmWarpShader",
     "MeltedSphereShader",
     "AuroraWaveShader",
+    "RetroTerrainShader",
     # Legacy exports for backwards compatibility
     "BACKGROUND_VERTEX_SHADER",
     "BACKGROUND_FRAGMENT_SHADER",

@@ -150,12 +150,14 @@ class TestShaderRegistry:
             FbmWarpShader,
             MeltedSphereShader,
             AuroraWaveShader,
+            RetroTerrainShader,
         )
 
         shader_classes = [s for s in SHADER_REGISTRY]
         assert FbmWarpShader in shader_classes
         assert MeltedSphereShader in shader_classes
         assert AuroraWaveShader in shader_classes
+        assert RetroTerrainShader in shader_classes
 
     def test_all_shaders_compile(self):
         """All registered shaders compile successfully."""
@@ -322,6 +324,56 @@ class TestAuroraWaveShader:
         ctx = moderngl.create_standalone_context()
         try:
             shader = AuroraWaveShader()
+            programs = shader.create_programs(ctx)
+            program = programs["main"]
+
+            # Check audio reactivity uniforms
+            assert "u_energy_low" in program
+            assert "u_energy_mid" in program
+            assert "u_energy_high" in program
+            assert "u_hue_offset" in program
+        finally:
+            ctx.release()
+
+
+class TestRetroTerrainShader:
+    """Tests for the Retro Terrain shader."""
+
+    def test_shader_compiles(self):
+        """Retro terrain shader compiles."""
+        import moderngl
+        from vinyl_mp4.shaders import RetroTerrainShader
+
+        ctx = moderngl.create_standalone_context()
+        try:
+            shader = RetroTerrainShader()
+            programs = shader.create_programs(ctx)
+            assert "main" in programs
+        finally:
+            ctx.release()
+
+    def test_does_not_need_noise_texture(self):
+        """Retro terrain shader does not need noise texture."""
+        from vinyl_mp4.shaders import RetroTerrainShader
+
+        shader = RetroTerrainShader()
+        assert shader.needs_noise_texture is False
+
+    def test_shader_name(self):
+        """Shader has correct name."""
+        from vinyl_mp4.shaders import RetroTerrainShader
+
+        shader = RetroTerrainShader()
+        assert shader.name == "Retro Terrain"
+
+    def test_has_audio_uniforms(self):
+        """Shader has energy uniforms for audio reactivity."""
+        import moderngl
+        from vinyl_mp4.shaders import RetroTerrainShader
+
+        ctx = moderngl.create_standalone_context()
+        try:
+            shader = RetroTerrainShader()
             programs = shader.create_programs(ctx)
             program = programs["main"]
 
