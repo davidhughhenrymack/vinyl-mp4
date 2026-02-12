@@ -55,7 +55,7 @@ class TestGetMetadata:
 
         metadata = get_metadata(str(sample_mp3))
 
-        assert metadata["title"] == "CRATE1 2025"
+        assert metadata["title"] == "2026"
         assert metadata["artist"] == "DMACK"
 
     def test_get_metadata_file_not_found(self, tmp_path: Path):

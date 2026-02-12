@@ -68,7 +68,7 @@ def get_metadata(path: str) -> dict[str, str]:
     if not Path(path).exists():
         raise FileNotFoundError(f"Audio file not found: {path}")
 
-    result = {"title": "CRATE1 2025", "artist": "DMACK"}
+    result = {"title": "2026", "artist": "DMACK"}
 
     try:
         audio = ID3(path)
