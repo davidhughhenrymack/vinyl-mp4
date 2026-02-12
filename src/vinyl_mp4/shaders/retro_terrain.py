@@ -30,6 +30,7 @@ uniform float u_energy_low;   // Sub-bass/kick energy (0-1) - terrain height amp
 uniform float u_energy_mid;   // Mid frequency (0-1) - subtle brightness
 uniform float u_energy_high;  // Hi-hat/treble (0-1) - shape evolution / warp
 uniform float u_energy_avg;   // Moving average of total energy (0-1) - camera tilt
+uniform float u_progress;     // Playback progress (0-1) - line reveal
 uniform float u_hue_offset;   // Randomized hue offset (0-1)
 
 in vec2 v_uv;
@@ -143,15 +144,24 @@ void main()
     float bloomWidth = 0.03;             // Wider soft glow radius
     vec3 bloomAcc = vec3(0.0);
 
+    // Reveal lines back-to-front over the first 50% of playback.
+    // reveal ramps 0→1 during progress 0→0.5, then stays at 1.
+    float reveal = clamp(u_progress / 0.5, 0.0, 1.0);
+
     for (int i = 0; i < 24; ++i)
     {
+        // Line threshold: back (i=23) → 0.0, front (i=0) → 1.0
+        float lineThresh = 1.0 - float(i) / 23.0;
+        // Smooth fade-in: each line fades from 0→1 over a small window
+        float lineAlpha = smoothstep(lineThresh - 0.08, lineThresh, reveal);
+
         // shapeEvolve shifts noise coords so treble morphs the terrain surface
         pos = vec4(p.x, heightScale * fbm4(0.5 * vec2(eye.x + p.x + shapeEvolve, z + off)), eye.z + z, 1.0);
         float h = (vpmat * pos).y - p.y;
         if (h > lh)
         {
             d = abs(h);
-            float fade = exp(-0.1 * float(i));
+            float fade = exp(-0.1 * float(i)) * lineAlpha;
             // Sharp line
             vec3 col = vec3( d < lineWidth ? smoothstep(1.0, 0.0, d / lineWidth) : 0.0 );
             col *= fade;
@@ -191,6 +201,7 @@ class RetroTerrainShader(BaseShader):
 
     def __init__(self) -> None:
         self._energy_avg: float = 0.0
+        self.progress: float = 1.0  # 0-1 playback progress; default fully revealed
 
     @property
     def name(self) -> str:
@@ -225,4 +236,5 @@ class RetroTerrainShader(BaseShader):
         program["u_energy_mid"].value = energy_mid
         program["u_energy_high"].value = energy_high
         program["u_energy_avg"].value = self._energy_avg
+        program["u_progress"].value = self.progress
         program["u_hue_offset"].value = hue_offset

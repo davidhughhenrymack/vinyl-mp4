@@ -331,6 +331,7 @@ class VinylRenderer:
         vinyl_scale: float = 1.0,
         vinyl_offset_x: float = 0.0,
         contrast: float = 1.0,
+        show_vinyl: bool = True,
     ):
         """Initialize the renderer with given dimensions.
 
@@ -341,12 +342,14 @@ class VinylRenderer:
             vinyl_scale: Vinyl size multiplier (1.0 to 2.0).
             vinyl_offset_x: Horizontal offset in vinyl radii (-1.0 to 1.0).
             contrast: Color contrast level (0.7-1.3), only used by FBM Warp shader.
+            show_vinyl: Whether to render the vinyl record overlay.
         """
         self.width = width
         self.height = height
         self.vinyl_scale = vinyl_scale
         self.vinyl_offset_x = vinyl_offset_x
         self.contrast = contrast
+        self.show_vinyl = show_vinyl
         self.frame_size = width * height * 4  # RGBA
 
         # Create headless OpenGL context with explicit backend selection
@@ -506,8 +509,9 @@ class VinylRenderer:
         self.bg_vao.render(moderngl.TRIANGLE_STRIP)
 
         # Render vinyl - only set dynamic uniform
-        self._vinyl_u_time.value = time
-        self.vinyl_vao.render(moderngl.TRIANGLE_STRIP)
+        if self.show_vinyl:
+            self._vinyl_u_time.value = time
+            self.vinyl_vao.render(moderngl.TRIANGLE_STRIP)
 
         # Read pixels from framebuffer color attachment
         return self.fbo.color_attachments[0].read()

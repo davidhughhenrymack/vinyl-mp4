@@ -116,15 +116,16 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
     # Design filters for frequency band separation
     # Low pass: 0-100 Hz (sub-bass, kick drums)
     # Band pass: 100-4000 Hz (bass guitar, vocals, instruments)
-    # High pass: 4000+ Hz (hi-hats, cymbals, brightness)
+    # Band pass: 4000-20000 Hz (hi-hats, cymbals, brightness — capped at human hearing)
     nyquist = sample_rate / 2
-    low_cutoff = 100 / nyquist  # Narrower for sub-bass/kick only
+    low_cutoff = 100 / nyquist
     high_cutoff = 4000 / nyquist
+    hearing_limit = min(20000 / nyquist, 0.99)  # Cap at 20 kHz, stay below Nyquist
 
     # Create butterworth filters
     b_low, a_low = scipy_signal.butter(4, low_cutoff, btype="low")
     b_mid, a_mid = scipy_signal.butter(4, [low_cutoff, high_cutoff], btype="band")
-    b_high, a_high = scipy_signal.butter(4, high_cutoff, btype="high")
+    b_high, a_high = scipy_signal.butter(4, [high_cutoff, hearing_limit], btype="band")
 
     # Apply filters
     samples_low = scipy_signal.filtfilt(b_low, a_low, samples)

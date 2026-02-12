@@ -133,15 +133,20 @@ def render_single_frame(args, input_path: Path) -> int:
         vinyl_scale=vinyl_scale,
         vinyl_offset_x=vinyl_offset_x,
         contrast=contrast,
+        show_vinyl=not args.no_vinyl,
     )
     print(f"  Using shader: {renderer.bg_shader.name}")
 
     # Create and set label texture
-    # Track name shown in bold center, rim text on the rim
-    rim_text = args.rim_text if args.rim_text else title
-    print(f"  Rim text: {rim_text}")
-    label_img = create_label_texture(track_name, artist, track_name=rim_text)
-    renderer.set_label_texture(label_img)
+    if not args.no_vinyl:
+        # Track name shown in bold center, rim text on the rim
+        rim_text = args.rim_text if args.rim_text else title
+        print(f"  Rim text: {rim_text}")
+        label_img = create_label_texture(track_name, artist, track_name=rim_text)
+        renderer.set_label_texture(label_img)
+
+    # Set progress for line reveal (single frame uses position within duration)
+    renderer.bg_shader.progress = frame_time / duration if duration > 0 else 1.0
 
     # Render frame
     print(f"Rendering frame at t={frame_time:.2f}s...")
@@ -273,6 +278,12 @@ def main() -> int:
         type=str,
         default=None,
         help="Text to display around the vinyl rim (default: from audio metadata title)",
+    )
+    parser.add_argument(
+        "--no-vinyl",
+        action="store_true",
+        default=False,
+        help="Hide the vinyl record and render only the background shader",
     )
 
     args = parser.parse_args()
@@ -421,14 +432,16 @@ def main() -> int:
             vinyl_scale=vinyl_scale,
             vinyl_offset_x=vinyl_offset_x,
             contrast=contrast,
+            show_vinyl=not args.no_vinyl,
         )
         print(f"  Using shader: {renderer.bg_shader.name}")
 
         # Create and set label texture with track name in bold center, rim text on rim
-        rim_text = args.rim_text if args.rim_text else title
-        print(f"  Rim text: {rim_text}")
-        label_img = create_label_texture(track_name, artist, track_name=rim_text)
-        renderer.set_label_texture(label_img)
+        if not args.no_vinyl:
+            rim_text = args.rim_text if args.rim_text else title
+            print(f"  Rim text: {rim_text}")
+            label_img = create_label_texture(track_name, artist, track_name=rim_text)
+            renderer.set_label_texture(label_img)
 
         # Initialize encoder
         print("Starting video encoder...")
@@ -470,6 +483,7 @@ def main() -> int:
             _log_interval = 6  # log every 6 frames = 10 per second at 60fps
             # #endregion
             for frame_idx in range(num_frames):
+                renderer.bg_shader.progress = frame_idx / num_frames
                 time = (frame_idx / args.fps) + time_offset
                 energy_low = energy.low[frame_idx]
                 energy_mid = energy.mid[frame_idx]
