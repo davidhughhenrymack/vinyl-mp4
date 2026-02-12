@@ -29,6 +29,7 @@ uniform vec2 u_resolution;
 uniform float u_energy_low;   // Sub-bass/kick energy (0-1) - terrain height amplitude
 uniform float u_energy_mid;   // Mid frequency (0-1) - subtle brightness
 uniform float u_energy_high;  // Hi-hat/treble (0-1) - shape evolution / warp
+uniform float u_energy_avg;   // Moving average of total energy (0-1) - camera tilt
 uniform float u_hue_offset;   // Randomized hue offset (0-1)
 
 in vec2 v_uv;
@@ -117,14 +118,17 @@ void main()
     p.x *= u_resolution.x / u_resolution.y;
 
     // Audio-reactive parameters
-    float heightScale = 0.3 + 0.5 * u_energy_low;      // Bass controls terrain amplitude
-    float shapeEvolve = u_energy_high * 0.4;             // Treble warps terrain shape
+    float heightScale = 0.1 + 0.9 * u_energy_low;      // Bass controls terrain amplitude
+    float shapeEvolve = u_energy_high * 0.4;             // Treble subtly warps terrain shape
     float brightness = 1.0 + 0.3 * u_energy_mid;         // Mids: gentle brightness lift
 
-    vec3 eye = vec3(0.0, 0.25 + 0.25 * cos(0.5 * u_time), -1.0);
+    // Camera tilt driven by moving-average energy: silent → 0° (head-on), loud → ~18°
+    float pitchDeg = mix(0.0, 18.0, u_energy_avg);
+
+    vec3 eye = vec3(0.0, 0.25, -1.0);
     float aspect = u_resolution.x / u_resolution.y;
     mat4 projmat = CreatePerspectiveMatrix(50.0, aspect, 0.1, 10.0);
-    mat4 viewmat = CamControl(eye, -5.0 * PI / 180.0);
+    mat4 viewmat = CamControl(eye, -pitchDeg * PI / 180.0);
     mat4 vpmat = viewmat * projmat;
 
     vec3 acc = vec3(0.0);
@@ -136,6 +140,8 @@ void main()
     float z = 0.1;
     float zi = 0.05;
     float lineWidth = 0.005;            // Fixed line width, no vibration
+    float bloomWidth = 0.03;             // Wider soft glow radius
+    vec3 bloomAcc = vec3(0.0);
 
     for (int i = 0; i < 24; ++i)
     {
@@ -145,9 +151,15 @@ void main()
         if (h > lh)
         {
             d = abs(h);
+            float fade = exp(-0.1 * float(i));
+            // Sharp line
             vec3 col = vec3( d < lineWidth ? smoothstep(1.0, 0.0, d / lineWidth) : 0.0 );
-            col *= exp(-0.1 * float(i));
+            col *= fade;
             acc += col;
+            // Soft bloom halo
+            vec3 bloom = vec3( d < bloomWidth ? smoothstep(1.0, 0.0, d / bloomWidth) : 0.0 );
+            bloom *= fade * 0.15;
+            bloomAcc += bloom;
             lh = h;
         }
         z += zi;
@@ -155,7 +167,7 @@ void main()
 
     // Tint lines using hue offset, apply mid-frequency brightness
     vec3 lineColor = hsv2rgb(vec3(u_hue_offset, 0.7, 1.0));
-    vec3 col = sqrt(clamp(acc, 0.0, 1.0)) * lineColor * brightness;
+    vec3 col = (sqrt(clamp(acc, 0.0, 1.0)) + clamp(bloomAcc, 0.0, 1.0)) * lineColor * brightness;
 
     // Pure black background
     fragColor = vec4(col, 1.0);
@@ -171,7 +183,14 @@ class RetroTerrainShader(BaseShader):
     - Low frequency (bass): terrain height amplitude
     - Mid frequency: subtle brightness lift
     - High frequency: terrain shape evolution / warp
+    - Total energy (moving average): camera tilt angle
     """
+
+    # EMA smoothing factor — lower = smoother. ~0.5s time constant at 60fps.
+    _EMA_ALPHA = 0.03
+
+    def __init__(self) -> None:
+        self._energy_avg: float = 0.0
 
     @property
     def name(self) -> str:
@@ -196,9 +215,14 @@ class RetroTerrainShader(BaseShader):
         contrast: float = 1.0,
     ) -> None:
         """Set shader uniforms (contrast is ignored for Retro Terrain)."""
+        # Update exponential moving average of total energy
+        total = (energy_low + energy_mid + energy_high) / 3.0
+        self._energy_avg += self._EMA_ALPHA * (total - self._energy_avg)
+
         program["u_time"].value = time
         program["u_resolution"].value = resolution
         program["u_energy_low"].value = energy_low
         program["u_energy_mid"].value = energy_mid
         program["u_energy_high"].value = energy_high
+        program["u_energy_avg"].value = self._energy_avg
         program["u_hue_offset"].value = hue_offset

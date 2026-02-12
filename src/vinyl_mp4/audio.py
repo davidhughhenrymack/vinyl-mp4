@@ -167,12 +167,55 @@ def compute_energy(samples: np.ndarray, sample_rate: int, fps: int) -> AudioEner
             )
         return np.clip(smoothed, 0.0, 1.0)
 
-    return AudioEnergy(
+    # #region agent log
+    import json as _json
+    _log_path = "/Users/dmackparty/dev/vinyl-mp4/.cursor/debug.log"
+    def _dbg(msg, data, hyp=""):
+        import time as _t
+        with open(_log_path, "a") as _f:
+            _f.write(_json.dumps({"location":"audio.py:compute_energy","message":msg,"data":data,"hypothesisId":hyp,"timestamp":int(_t.time()*1000)}) + "\n")
+    # Pre-normalization stats for each band
+    _dbg("raw_energy_stats", {
+        "low_max": float(np.max(energy_low)), "low_mean": float(np.mean(energy_low)),
+        "low_p95": float(np.percentile(energy_low, 95)), "low_p99": float(np.percentile(energy_low, 99)),
+        "mid_max": float(np.max(energy_mid)), "mid_mean": float(np.mean(energy_mid)),
+        "high_max": float(np.max(energy_high)), "high_mean": float(np.mean(energy_high)),
+        "num_frames": num_frames, "samples_per_frame": samples_per_frame,
+    }, "H2,H3,H4")
+    # Post-normalization, pre-smoothing stats
+    _low_normed = energy_low / np.max(energy_low) if np.max(energy_low) > 0 else energy_low
+    _dbg("low_normed_pre_smooth", {
+        "max": float(np.max(_low_normed)), "mean": float(np.mean(_low_normed)),
+        "p95": float(np.percentile(_low_normed, 95)), "p99": float(np.percentile(_low_normed, 99)),
+        "first_300_values": [float(x) for x in _low_normed[:300]],
+    }, "H1,H2")
+    # #endregion
+
+    result = AudioEnergy(
         total=normalize_and_smooth(energy_total, 0.9),
-        low=normalize_and_smooth(energy_low, 0.92),
+        low=normalize_and_smooth(energy_low, 0.7),
         mid=normalize_and_smooth(energy_mid, 0.90),
         high=normalize_and_smooth(energy_high, 0.88),
     )
+
+    # #region agent log
+    _dbg("post_smooth_low", {
+        "max": float(np.max(result.low)), "mean": float(np.mean(result.low)),
+        "min": float(np.min(result.low)),
+        "p5": float(np.percentile(result.low, 5)), "p50": float(np.percentile(result.low, 50)),
+        "p95": float(np.percentile(result.low, 95)),
+        "first_300_values": [float(x) for x in result.low[:300]],
+        "dynamic_range": float(np.max(result.low) - np.min(result.low)),
+    }, "H1")
+    _dbg("post_smooth_mid_high", {
+        "mid_max": float(np.max(result.mid)), "mid_mean": float(np.mean(result.mid)),
+        "mid_dynamic_range": float(np.max(result.mid) - np.min(result.mid)),
+        "high_max": float(np.max(result.high)), "high_mean": float(np.mean(result.high)),
+        "high_dynamic_range": float(np.max(result.high) - np.min(result.high)),
+    }, "H1")
+    # #endregion
+
+    return result
 
 
 def get_hue_offset(filename: str) -> float:

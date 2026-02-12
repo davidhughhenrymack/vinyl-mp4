@@ -464,11 +464,23 @@ def main() -> int:
             unit="frame",
             bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
         ) as pbar:
+            # #region agent log
+            import json as _json
+            _log_path = "/Users/dmackparty/dev/vinyl-mp4/.cursor/debug.log"
+            _log_interval = 6  # log every 6 frames = 10 per second at 60fps
+            # #endregion
             for frame_idx in range(num_frames):
                 time = (frame_idx / args.fps) + time_offset
                 energy_low = energy.low[frame_idx]
                 energy_mid = energy.mid[frame_idx]
                 energy_high = energy.high[frame_idx]
+
+                # #region agent log
+                if frame_idx % _log_interval == 0:
+                    _real_t = frame_idx / args.fps + (start_offset if start_offset > 0 else 0)
+                    with open(_log_path, "a") as _f:
+                        _f.write(_json.dumps({"location":"cli.py:render_loop","message":"frame_energy","data":{"frame":frame_idx,"real_time":round(_real_t,3),"low":round(float(energy_low),4),"mid":round(float(energy_mid),4),"high":round(float(energy_high),4)},"hypothesisId":"H6,H7","timestamp":int(__import__('time').time()*1000)}) + "\n")
+                # #endregion
 
                 # Render frame with frequency band energies
                 frame_data = renderer.render_frame(

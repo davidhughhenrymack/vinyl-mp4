@@ -1,12 +1,12 @@
 # Vinyl MP4
 
-Convert MP3 files to MP4 videos with audio-reactive vinyl visualization.
+Convert audio files to MP4 videos with audio-reactive vinyl visualization.
 
 Generates a video with:
-- **Animated iridescent background** - Domain-warped fractal Brownian motion patterns that react to audio energy (bass controls scale/intensity, treble controls brightness)
+- **Audio-reactive background shaders** - Multiple shader options (FBM Warp, Melted Sphere, Retro Terrain, Aurora Wave) that react to bass, mids, and treble
 - **Spinning vinyl record** - 33 RPM rotation with realistic grooves, film grain, and a vintage-style label
 - **Custom label design** - Shows artist, title, track name as curved text around the rim, and "DM" logo
-- **Unique colors per file** - Each input file gets a unique color palette based on its filename hash, with slow hue rotation over time
+- **Unique colors per file** - Each input file gets a unique color palette based on its filename hash
 
 ## Requirements
 
@@ -17,11 +17,13 @@ Generates a video with:
 ### Installing FFmpeg
 
 **macOS (Homebrew):**
+
 ```bash
 brew install ffmpeg
 ```
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt install ffmpeg
 ```
@@ -34,11 +36,8 @@ Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
 Using [uv](https://docs.astral.sh/uv/) (recommended):
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/vinyl-mp4.git
 cd vinyl-mp4
-
-# Install with uv
 uv sync
 ```
 
@@ -48,120 +47,106 @@ Or with pip:
 pip install -e .
 ```
 
-## Usage
-
-### Basic Usage
+## Quick Start
 
 ```bash
-# Using uv
+# Render a full track (outputs song.mp4 next to the input file)
 uv run vinyl-mp4 song.mp3
 
-# Or if installed globally
-vinyl-mp4 song.mp3
+# Render 20 seconds at 480p with a specific shader
+uv run vinyl-mp4 song.flac --limit 20 --480p --shader terrain
+
+# Preview a single frame at the 10-second mark
+uv run vinyl-mp4 song.mp3 --frame 10
 ```
 
-This will create `song.mp4` in the same directory as the input file.
+## Usage
+
+```
+vinyl-mp4 INPUT [OPTIONS]
+```
+
+`INPUT` can be any audio file supported by FFmpeg (MP3, FLAC, WAV, etc.).
+
+### Resolution Presets
+
+| Flag     | Resolution  |
+|----------|-------------|
+| `--480p` | 854 x 480   |
+| `--720p` | 1280 x 720  |
+| `--1080p`| 1920 x 1080 (default) |
+| `--1440p`| 2560 x 1440 |
+| `--4k`   | 3840 x 2160 |
+
+Or pass `--width` and `--height` directly to override presets.
 
 ### Options
 
-```bash
-vinyl-mp4 input.mp3 [OPTIONS]
+| Option | Description |
+|--------|-------------|
+| `-o, --output PATH` | Output file path (MP4 for video, PNG for `--frame`) |
+| `--fps INT` | Frames per second (default: 60) |
+| `--limit SECONDS` | Render only the first N seconds |
+| `--start SECONDS` | Start from N seconds into the audio |
+| `--name TEXT` | Track name on the vinyl label (default: filename) |
+| `--rim-text TEXT` | Text around the vinyl rim (default: title from metadata) |
+| `--frame SECONDS` | Render a single frame to PNG instead of video |
+| `--shader NAME` | Background shader (see below) |
+| `--color NAME` | Base color: red, orange, yellow, lime, green, teal, cyan, sky, blue, indigo, purple, violet, magenta, pink |
 
-Resolution Presets (mutually exclusive):
-  --480p              Output at 480p (854x480)
-  --720p              Output at 720p (1280x720) - ~350 fps
-  --1080p             Output at 1080p (1920x1080) [default] - ~160 fps
-  --1440p             Output at 1440p/2K (2560x1440)
-  --4k                Output at 4K (3840x2160) - ~55 fps
+### Shaders
 
-Other Options:
-  -o, --output PATH   Output file path (MP4 for video, PNG for --frame)
-  --width INT         Video width in pixels (overrides presets)
-  --height INT        Video height in pixels (overrides presets)
-  --fps INT           Frames per second (default: 60)
-  --limit SECONDS     Limit output to first N seconds of audio
-  --name TEXT         Track name to display on vinyl label (default: filename)
-  --frame SECONDS     Render a single frame at this time to PNG (for testing)
-  --shader NAME       Background shader (FBM Warp, Melted Sphere) - default: auto-selected by filename
-  --color NAME        Base color for shader (red, orange, yellow, lime, green, teal, cyan, sky, blue, indigo, purple, violet, magenta, pink)
-  --help              Show help message
-```
+| Name | CLI flag | Description |
+|------|----------|-------------|
+| FBM Warp | `--shader fbm` | Flowing fractal Brownian motion patterns |
+| Melted Sphere | `--shader melted` | Raymarched iridescent blob |
+| Retro Terrain | `--shader terrain` | Wireframe terrain with perspective projection |
+| Aurora Wave | `--shader aurora` | Undulating aurora borealis waves |
+
+By default a shader is auto-selected based on the filename hash.
 
 ### Examples
 
-**Basic conversion:**
 ```bash
+# Basic conversion (auto shader, auto color, 1080p)
 uv run vinyl-mp4 song.mp3
-```
 
-**Convert to 1080p:**
-```bash
-uv run vinyl-mp4 song.mp3 --width 1920 --height 1080
-```
-
-**Custom output path:**
-```bash
+# Custom output path
 uv run vinyl-mp4 song.mp3 -o output/my_video.mp4
-```
 
-**Render first 30 seconds only:**
-```bash
+# First 30 seconds only (output: song-30s.mp4)
 uv run vinyl-mp4 song.mp3 --limit 30
-# Output: song-30s.mp4
-```
 
-**Custom track name on label:**
-```bash
-uv run vinyl-mp4 song.mp3 --name "My Awesome Track"
-```
+# Start from 60 seconds in, render 20 seconds
+uv run vinyl-mp4 song.mp3 --start 60 --limit 20
 
-**Quick test - render single frame:**
-```bash
-uv run vinyl-mp4 song.mp3 --frame 10
-# Output: song-frame-10.0s.png
+# Custom label text
+uv run vinyl-mp4 song.mp3 --name "My Track" --rim-text "SIDE A"
 
-# Render frame at specific time with custom output
+# Pick shader + color
+uv run vinyl-mp4 song.mp3 --shader terrain --color cyan
+
+# Quick frame preview
 uv run vinyl-mp4 song.mp3 --frame 5.5 -o preview.png
-```
 
-**Lower FPS for smaller file:**
-```bash
+# Lower FPS for smaller file
 uv run vinyl-mp4 song.mp3 --fps 24
-```
-
-**Choose a specific shader:**
-```bash
-# Use the FBM Warp shader (flowing fractal patterns)
-uv run vinyl-mp4 song.mp3 --shader fbm
-
-# Use the Melted Sphere shader (raymarched iridescent blob)
-uv run vinyl-mp4 song.mp3 --shader melted
-```
-
-**Choose a color scheme:**
-```bash
-# Purple color scheme
-uv run vinyl-mp4 song.mp3 --color purple
-
-# Combine shader and color
-uv run vinyl-mp4 song.mp3 --shader fbm --color cyan
 ```
 
 ## How It Works
 
-1. **Audio Analysis** - Loads the MP3, extracts ID3 metadata (title/artist), and computes per-frame energy in two frequency bands:
-   - **Low frequency** (<250 Hz) - Bass and kick drums
-   - **High frequency** (>4000 Hz) - Hi-hats, cymbals, brightness
-2. **Color Selection** - Hashes the filename to determine a unique hue offset, plus slow sine-based hue rotation over ~30 minutes
+1. **Audio Analysis** - Loads the audio file, extracts metadata (title/artist), and computes per-frame energy in three frequency bands:
+   - **Low** (<250 Hz) - Bass and kick drums
+   - **Mid** (250-4000 Hz) - Vocals, instruments
+   - **High** (>4000 Hz) - Hi-hats, cymbals, brightness
+2. **Color Selection** - Hashes the filename to determine a unique hue offset
 3. **Rendering** - Uses headless OpenGL (ModernGL) to render each frame:
-   - **Background**: Animated domain-warped fBM shader - bass controls scale/intensity, treble controls brightness
+   - **Background**: Audio-reactive shader (bass controls amplitude/scale, mids affect brightness, treble drives shape/warp)
    - **Vinyl**: Spinning 33 RPM record with procedural grooves and animated film grain
    - **Label**: Vintage-style design with curved track name, artist/title, and logo
 4. **Encoding** - Streams raw RGBA frames to FFmpeg for H.264 encoding, muxed with original audio
 
 ## Development
-
-### Running Tests
 
 ```bash
 # Run all tests
@@ -170,7 +155,7 @@ uv run pytest
 # Run with coverage
 uv run pytest --cov=vinyl_mp4
 
-# Run specific test file
+# Run a specific test file
 uv run pytest tests/test_audio.py -v
 ```
 
@@ -178,35 +163,27 @@ uv run pytest tests/test_audio.py -v
 
 ```
 vinyl-mp4/
-├── pyproject.toml           # Package configuration
-├── README.md                # This file
+├── pyproject.toml
+├── README.md
 ├── src/
 │   └── vinyl_mp4/
 │       ├── __init__.py
-│       ├── __main__.py      # Entry point for python -m
-│       ├── cli.py           # Command-line interface
-│       ├── audio.py         # Audio loading and analysis
-│       ├── renderer.py      # OpenGL rendering
-│       ├── encoder.py       # FFmpeg video encoding
-│       └── shaders/         # GLSL shader code
-│           ├── __init__.py  # Shader registry
-│           ├── base.py      # BaseShader abstract class
-│           ├── fbm_warp.py  # Fractal Brownian motion shader
-│           ├── melted_sphere.py  # Raymarched sphere shader
-│           └── vinyl.py     # Vinyl record overlay shader
+│       ├── __main__.py          # python -m entry point
+│       ├── cli.py               # Command-line interface
+│       ├── audio.py             # Audio loading and energy analysis
+│       ├── renderer.py          # OpenGL rendering pipeline
+│       ├── encoder.py           # FFmpeg video encoding
+│       └── shaders/
+│           ├── __init__.py      # Shader registry
+│           ├── base.py          # BaseShader abstract class
+│           ├── fbm_warp.py      # FBM Warp shader
+│           ├── melted_sphere.py # Melted Sphere shader
+│           ├── retro_terrain.py # Retro Terrain shader
+│           ├── aurora_wave.py   # Aurora Wave shader
+│           └── vinyl.py         # Vinyl record overlay
 └── tests/
-    ├── conftest.py          # Test fixtures
-    ├── test_audio.py
-    ├── test_cli.py
-    ├── test_encoder.py
-    ├── test_renderer.py
-    └── test_shaders.py
 ```
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Credits
-
-Background shader based on [Shadertoy tdG3Rd](https://www.shadertoy.com/view/tdG3Rd) "Base warp fBM".
