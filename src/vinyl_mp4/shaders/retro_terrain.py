@@ -272,6 +272,7 @@ class RetroTerrainShader(BaseShader):
         bg_rgb: tuple[float, float, float] | None = None,
         line_rgb: tuple[float, float, float] | None = None,
         track_onsets: list[float] | None = None,
+        track_pitches: list[float] | None = None,
     ) -> None:
         """Set shader uniforms (contrast is ignored for Retro Terrain)."""
         # Update exponential moving average of total energy

@@ -21,6 +21,7 @@ class AbletonSignals:
     track_names: list[str]
     track_volumes: list[float]  # ALS mixer volume value per track
     track_note_counts: list[int]  # MIDI note events discovered per track
+    track_pitch_norms: list[float]  # Static per-track normalized pitch center in [0, 1]
     track_signals: np.ndarray  # shape: (num_frames, num_tracks), values in [-1, 1]
     track_onsets: np.ndarray  # shape: (num_frames, num_tracks), values in [0, 1]
     melody_energy: np.ndarray  # shape: (num_frames,), values in [0, 1]
@@ -109,6 +110,7 @@ def load_ableton_signals(
     track_names: list[str] = []
     track_volumes: list[float] = []
     track_note_counts: list[int] = []
+    track_pitch_norms: list[float] = []
     per_track_series: list[np.ndarray] = []
     per_track_onsets: list[np.ndarray] = []
     note_count = 0
@@ -119,6 +121,8 @@ def load_ableton_signals(
         track_series = np.zeros(num_frames, dtype=np.float32)
         track_onset_series = np.zeros(num_frames, dtype=np.float32)
         current_track_note_count = 0
+        pitch_weighted_sum = 0.0
+        pitch_weight_sum = 0.0
         track_pitches: list[int] = []
         for key_track in track.findall(".//KeyTracks/KeyTrack"):
             midi_key = key_track.find("./MidiKey")
@@ -170,6 +174,8 @@ def load_ableton_signals(
                     track_series[start_frame : end_frame + 1] += signed_magnitude
                     # Explicit onset pulse for this note, used for hard visual hits.
                     track_onset_series[start_frame] += max(abs(signed_magnitude), 0.05)
+                    pitch_weighted_sum += pitch * max(velocity_weight, 0.01)
+                    pitch_weight_sum += max(velocity_weight, 0.01)
                     note_count += 1
                     current_track_note_count += 1
 
@@ -177,6 +183,12 @@ def load_ableton_signals(
             track_names.append(current_track_name)
             track_volumes.append(current_track_volume)
             track_note_counts.append(current_track_note_count)
+            avg_pitch = (
+                pitch_weighted_sum / pitch_weight_sum
+                if pitch_weight_sum > 0.0
+                else float(np.mean(track_pitches))
+            )
+            track_pitch_norms.append(float(np.clip(avg_pitch / 127.0, 0.0, 1.0)))
             per_track_series.append(np.clip(track_series, -1.0, 1.0))
             per_track_onsets.append(_normalize_01(track_onset_series))
             if len(per_track_series) >= max_tracks:
@@ -195,6 +207,7 @@ def load_ableton_signals(
         track_names=track_names,
         track_volumes=track_volumes,
         track_note_counts=track_note_counts,
+        track_pitch_norms=track_pitch_norms,
         track_signals=track_signals,
         track_onsets=track_onsets,
         melody_energy=melody_energy,

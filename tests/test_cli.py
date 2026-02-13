@@ -238,3 +238,44 @@ class TestCLIOutputValidation:
         )
 
         assert "video" in probe_result.stdout
+
+
+class TestTonight:
+    """Integration test for 'tonight' project: short render with Micro Shapes + ALS when media exists."""
+
+    def test_tonight_preview_render(self, tmp_path: Path):
+        """Run a short 480p preview of tonight with Micro Shapes shader; skip if media/tonight.flac missing."""
+        project_root = Path(__file__).resolve().parent.parent
+        audio = project_root / "media" / "tonight.flac"
+        als = project_root / "media" / "tonight.als"
+        if not audio.exists():
+            pytest.skip("media/tonight.flac not found; add it to run the tonight test")
+        output_path = tmp_path / "tonight-test-preview.mp4"
+        cmd = [
+            sys.executable,
+            "-m",
+            "vinyl_mp4",
+            str(audio),
+            "-o",
+            str(output_path),
+            "--shader",
+            "Micro Shapes",
+            "--480p",
+            "--no-vinyl",
+            "--limit",
+            "3",
+            "--fps",
+            "15",
+        ]
+        if als.exists():
+            cmd.extend(["--als", str(als)])
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            cwd=str(project_root),
+        )
+        assert result.returncode == 0, f"CLI failed: {result.stderr}"
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0

@@ -487,6 +487,7 @@ class VinylRenderer:
         hue_offset: float,
         track_signals: list[float] | None = None,
         track_onsets: list[float] | None = None,
+        track_pitches: list[float] | None = None,
     ) -> bytes:
         """Render a single frame.
 
@@ -498,6 +499,7 @@ class VinylRenderer:
             hue_offset: Hue rotation for background colors (0.0-1.0).
             track_signals: Optional per-track signed ALS values for the current frame.
             track_onsets: Optional per-track note onset pulses for the current frame.
+            track_pitches: Optional per-track normalized pitch centers in [0, 1].
 
         Returns:
             Raw RGBA pixel data as bytes.
@@ -513,6 +515,8 @@ class VinylRenderer:
             kwargs["line_rgb"] = self.line_rgb
         if track_onsets is not None:
             kwargs["track_onsets"] = track_onsets
+        if track_pitches is not None:
+            kwargs["track_pitches"] = track_pitches
         self.bg_shader.set_uniforms(
             self.bg_program,
             time,
