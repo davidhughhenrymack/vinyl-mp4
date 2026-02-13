@@ -22,6 +22,7 @@ class AbletonSignals:
     track_volumes: list[float]  # ALS mixer volume value per track
     track_note_counts: list[int]  # MIDI note events discovered per track
     track_signals: np.ndarray  # shape: (num_frames, num_tracks), values in [-1, 1]
+    track_onsets: np.ndarray  # shape: (num_frames, num_tracks), values in [0, 1]
     melody_energy: np.ndarray  # shape: (num_frames,), values in [0, 1]
     bass_energy: np.ndarray  # shape: (num_frames,), values in [0, 1]
     transient_energy: np.ndarray  # shape: (num_frames,), values in [0, 1]
@@ -109,12 +110,14 @@ def load_ableton_signals(
     track_volumes: list[float] = []
     track_note_counts: list[int] = []
     per_track_series: list[np.ndarray] = []
+    per_track_onsets: list[np.ndarray] = []
     note_count = 0
 
     for track in root.findall(".//Tracks/MidiTrack"):
         current_track_name = _track_name(track)
         current_track_volume = _extract_track_volume(track)
         track_series = np.zeros(num_frames, dtype=np.float32)
+        track_onset_series = np.zeros(num_frames, dtype=np.float32)
         current_track_note_count = 0
         track_pitches: list[int] = []
         for key_track in track.findall(".//KeyTracks/KeyTrack"):
@@ -165,6 +168,8 @@ def load_ableton_signals(
                     magnitude = velocity_weight * pitch_weight
                     signed_magnitude = magnitude if pitch >= pitch_split else -magnitude
                     track_series[start_frame : end_frame + 1] += signed_magnitude
+                    # Explicit onset pulse for this note, used for hard visual hits.
+                    track_onset_series[start_frame] += max(abs(signed_magnitude), 0.05)
                     note_count += 1
                     current_track_note_count += 1
 
@@ -173,6 +178,7 @@ def load_ableton_signals(
             track_volumes.append(current_track_volume)
             track_note_counts.append(current_track_note_count)
             per_track_series.append(np.clip(track_series, -1.0, 1.0))
+            per_track_onsets.append(_normalize_01(track_onset_series))
             if len(per_track_series) >= max_tracks:
                 break
 
@@ -180,6 +186,7 @@ def load_ableton_signals(
         raise ValueError("ALS parsing error: no MIDI note events found in MidiTracks")
 
     track_signals = np.stack(per_track_series, axis=1).astype(np.float32)
+    track_onsets = np.stack(per_track_onsets, axis=1).astype(np.float32)
     melody_energy = _normalize_01(np.sum(np.clip(track_signals, 0.0, 1.0), axis=1))
     bass_energy = _normalize_01(np.sum(np.clip(-track_signals, 0.0, 1.0), axis=1))
     transient_energy = _normalize_01(np.abs(np.diff(np.sum(track_signals, axis=1), prepend=0.0)))
@@ -189,6 +196,7 @@ def load_ableton_signals(
         track_volumes=track_volumes,
         track_note_counts=track_note_counts,
         track_signals=track_signals,
+        track_onsets=track_onsets,
         melody_energy=melody_energy,
         bass_energy=bass_energy,
         transient_energy=transient_energy,

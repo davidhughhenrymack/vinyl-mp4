@@ -198,8 +198,10 @@ def render_single_frame(args, input_path: Path) -> int:
     # Render frame
     print(f"Rendering frame at t={frame_time:.2f}s...")
     frame_track_signals = None
+    frame_track_onsets = None
     if als_signals is not None and frame_idx < als_signals.track_signals.shape[0]:
         frame_track_signals = als_signals.track_signals[frame_idx].tolist()
+        frame_track_onsets = als_signals.track_onsets[frame_idx].tolist()
     if args.no_audio_viz:
         energy_low = energy_mid = energy_high = 0.0
     frame_data = renderer.render_frame(
@@ -209,6 +211,7 @@ def render_single_frame(args, input_path: Path) -> int:
         energy_high,
         hue_offset,
         track_signals=frame_track_signals,
+        track_onsets=frame_track_onsets,
     )
 
     # Convert to PIL Image and save (RGBA format, flip for OpenGL)
@@ -651,8 +654,10 @@ def main() -> int:
 
                 # Render frame with frequency band energies
                 frame_track_signals = None
+                frame_track_onsets = None
                 if als_signals is not None and frame_idx < als_signals.track_signals.shape[0]:
                     frame_track_signals = als_signals.track_signals[frame_idx].tolist()
+                    frame_track_onsets = als_signals.track_onsets[frame_idx].tolist()
 
                 frame_data = renderer.render_frame(
                     time,
@@ -661,6 +666,7 @@ def main() -> int:
                     energy_high,
                     hue_offset,
                     track_signals=frame_track_signals,
+                    track_onsets=frame_track_onsets,
                 )
 
                 # Flip vertically for correct video orientation (OpenGL is bottom-to-top)

@@ -486,6 +486,7 @@ class VinylRenderer:
         energy_high: float,
         hue_offset: float,
         track_signals: list[float] | None = None,
+        track_onsets: list[float] | None = None,
     ) -> bytes:
         """Render a single frame.
 
@@ -496,6 +497,7 @@ class VinylRenderer:
             energy_high: High frequency (treble) energy level (0.0-1.0).
             hue_offset: Hue rotation for background colors (0.0-1.0).
             track_signals: Optional per-track signed ALS values for the current frame.
+            track_onsets: Optional per-track note onset pulses for the current frame.
 
         Returns:
             Raw RGBA pixel data as bytes.
@@ -509,6 +511,8 @@ class VinylRenderer:
             kwargs["bg_rgb"] = self.bg_rgb
         if self.line_rgb is not None:
             kwargs["line_rgb"] = self.line_rgb
+        if track_onsets is not None:
+            kwargs["track_onsets"] = track_onsets
         self.bg_shader.set_uniforms(
             self.bg_program,
             time,

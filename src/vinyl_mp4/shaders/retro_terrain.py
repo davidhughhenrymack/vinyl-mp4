@@ -36,6 +36,8 @@ uniform vec3 u_bg_rgb;        // Background color (when theme used)
 uniform vec3 u_line_rgb;      // Line color; .x < 0 means use hue
 uniform int u_track_signal_count;
 uniform float u_track_signals[64];
+uniform int u_track_onset_count;
+uniform float u_track_onsets[64];
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -136,7 +138,8 @@ void main()
     mat4 viewmat = CamControl(eye, -pitchDeg * PI / 180.0);
     mat4 vpmat = viewmat * projmat;
 
-    vec3 acc = vec3(0.0);
+    float alphaAcc = 0.0;
+    vec3 colorAcc = vec3(0.0);
     float d;
 
     vec4 pos = vec4(0.0);
@@ -146,15 +149,16 @@ void main()
     float zi = 0.05;
     float lineWidth = 0.005;            // Fixed line width, no vibration
     float bloomWidth = 0.03;             // Wider soft glow radius
-    vec3 bloomAcc = vec3(0.0);
 
     // Reveal lines back-to-front over the first 50% of playback.
     // reveal ramps 0→1 during progress 0→0.5, then stays at 1.
     float reveal = clamp(u_progress / 0.5, 0.0, 1.0);
+    float bloomStrength = (u_bg_rgb.r > 0.99 && u_bg_rgb.g > 0.99 && u_bg_rgb.b > 0.99) ? 0.0 : 0.15;
 
     for (int i = 0; i < 24; ++i)
     {
         float lineSignal = 0.0;
+        float lineOnset = 0.0;
         if (u_track_signal_count > 0) {
             // Proportional buckets: line i maps to track (i * trackCount) / lineCount
             // so all tracks get lines and blocks stay contiguous.
@@ -162,6 +166,10 @@ void main()
             int signalIndex = (i * u_track_signal_count) / lineCount;
             signalIndex = min(signalIndex, u_track_signal_count - 1);
             lineSignal = u_track_signals[signalIndex];
+            if (u_track_onset_count > 0) {
+                int onsetIndex = min(signalIndex, u_track_onset_count - 1);
+                lineOnset = u_track_onsets[onsetIndex];
+            }
         }
         float melodySignal = max(lineSignal, 0.0);
         float bassSignal = max(-lineSignal, 0.0);
@@ -172,8 +180,8 @@ void main()
         float lineAlpha = step(lineThresh, reveal);
 
         // shapeEvolve shifts noise coords so treble morphs the terrain surface
-        float lineHeightScale = heightScale + 0.35 * melodySignal + 0.25 * bassSignal;
-        float lineShapeEvolve = shapeEvolve + 0.20 * melodySignal - 0.10 * bassSignal;
+        float lineHeightScale = heightScale + 0.35 * melodySignal + 0.25 * bassSignal + 0.35 * lineOnset;
+        float lineShapeEvolve = shapeEvolve + 0.20 * melodySignal - 0.10 * bassSignal + 0.30 * lineOnset;
         pos = vec4(
             p.x,
             lineHeightScale * fbm4(0.5 * vec2(eye.x + p.x + lineShapeEvolve, z + off)),
@@ -184,32 +192,38 @@ void main()
         if (h > lh)
         {
             d = abs(h);
-            float fade = exp(-0.1 * float(i)) * lineAlpha;
-            // Sharp line
-            vec3 col = vec3( d < lineWidth ? smoothstep(1.0, 0.0, d / lineWidth) : 0.0 );
-            col *= fade;
-            acc += col;
-            // Soft bloom halo
-            vec3 bloom = vec3( d < bloomWidth ? smoothstep(1.0, 0.0, d / bloomWidth) : 0.0 );
-            bloom *= fade * 0.15;
-            bloomAcc += bloom;
+            float depthAlpha = exp(-0.1 * float(i)) * lineAlpha;
+            float coreMask = d < lineWidth ? smoothstep(1.0, 0.0, d / lineWidth) : 0.0;
+            float bloomMask = d < bloomWidth ? smoothstep(1.0, 0.0, d / bloomWidth) : 0.0;
+            float noteImpact = max(smoothstep(0.001, 0.12, abs(lineSignal)), lineOnset);
+            float noteAlphaBoost = 1.0 + 0.8 * noteImpact;
+            float localAlpha = clamp(
+                (coreMask + bloomStrength * bloomMask) * depthAlpha * brightness * noteAlphaBoost,
+                0.0,
+                1.0
+            );
+
+            // Strong note-driven saturation jump: near-gray when idle, vivid on note activity.
+            float saturation = mix(0.08, 1.0, noteImpact);
+            vec3 lineTone;
+            if (u_line_rgb.x >= 0.0) {
+                vec3 gray = vec3(dot(u_line_rgb, vec3(0.299, 0.587, 0.114)));
+                lineTone = mix(gray, u_line_rgb, saturation);
+            } else {
+                lineTone = hsv2rgb(vec3(u_hue_offset, saturation, 1.0));
+            }
+
+            colorAcc += lineTone * localAlpha;
+            alphaAcc += localAlpha;
             // Only advance depth when this line is revealed, so unrevealed lines don't mask revealed ones
             if (lineAlpha > 0.0) lh = h;
         }
         z += zi;
     }
 
-    // Line color: custom u_line_rgb when .x >= 0, else hue-based
-    vec3 lineColor = (u_line_rgb.x >= 0.0)
-        ? u_line_rgb
-        : hsv2rgb(vec3(u_hue_offset, 0.7, 1.0));
-    // Combined line + bloom intensity clamped to 1 so we never exceed line color when blending to bg.
-    // Bloom then only softens the edge (alpha falloff) and works on any background.
-    float core = sqrt(clamp(acc.r, 0.0, 1.0));
-    float bloom = clamp(bloomAcc.r, 0.0, 1.0);  // bloomAcc is grayscale
-    float intensity = min(1.0, core + bloom);
-    vec3 linePart = lineColor * brightness * intensity;
-    fragColor = vec4(mix(u_bg_rgb, linePart, intensity), 1.0);
+    float finalAlpha = clamp(alphaAcc, 0.0, 1.0);
+    vec3 linePart = alphaAcc > 0.0 ? (colorAcc / alphaAcc) : vec3(0.0);
+    fragColor = vec4(mix(u_bg_rgb, linePart, finalAlpha), 1.0);
 }
 """
 
@@ -257,6 +271,7 @@ class RetroTerrainShader(BaseShader):
         *,
         bg_rgb: tuple[float, float, float] | None = None,
         line_rgb: tuple[float, float, float] | None = None,
+        track_onsets: list[float] | None = None,
     ) -> None:
         """Set shader uniforms (contrast is ignored for Retro Terrain)."""
         # Update exponential moving average of total energy
@@ -279,3 +294,7 @@ class RetroTerrainShader(BaseShader):
         padded = values + [0.0] * (max_track_signals - len(values))
         program["u_track_signal_count"].value = len(values)
         program["u_track_signals"].value = tuple(float(v) for v in padded)
+        onset_values = list(track_onsets or [])[:max_track_signals]
+        onset_padded = onset_values + [0.0] * (max_track_signals - len(onset_values))
+        program["u_track_onset_count"].value = len(onset_values)
+        program["u_track_onsets"].value = tuple(float(v) for v in onset_padded)
