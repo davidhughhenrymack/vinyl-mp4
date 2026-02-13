@@ -74,11 +74,14 @@ class BaseShader(ABC):
         hue_offset: float,
         resolution: tuple[int, int],
         contrast: float = 1.0,
+        track_signals: list[float] | None = None,
+        **kwargs: object,
     ) -> None:
         """Set shader-specific uniforms for the main pass.
 
         Args:
             contrast: Color contrast level (0.7-1.3), only used by FBM Warp shader.
+            **kwargs: Theme options (e.g. bg_rgb, line_rgb) for shaders that support them.
         """
         pass
 

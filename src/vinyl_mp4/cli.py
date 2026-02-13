@@ -23,6 +23,10 @@ from vinyl_mp4.audio import (
     get_contrast,
     AudioEnergy,
 )
+from vinyl_mp4.ableton_ingestion import (
+    load_ableton_signals,
+    analyze_als_audio_alignment,
+)
 from vinyl_mp4.encoder import VideoEncoder, check_ffmpeg, FFmpegNotFoundError
 from vinyl_mp4.renderer import VinylRenderer, create_label_texture
 from vinyl_mp4.shaders import (
@@ -78,8 +82,35 @@ def render_single_frame(args, input_path: Path) -> int:
     print(f"  Track name: {track_name}")
 
     # Compute energy for the specific frame
-    print("Computing audio energy...")
-    energy = compute_energy(samples, sample_rate, args.fps)
+    print("Computing visualization energy...")
+    als_signals = None
+    num_frames = max(1, int(duration * args.fps))
+    if args.als:
+        als_signals = load_ableton_signals(
+            args.als,
+            fps=args.fps,
+            num_frames=num_frames,
+            timeline_start_seconds=0.0,
+        )
+        alignment = analyze_als_audio_alignment(als_signals, samples, sample_rate, args.fps)
+        print(
+            "  ALS alignment:"
+            f" melody~mid corr={alignment.melody_mid_corr:.3f},"
+            f" bass~low corr={alignment.bass_low_corr:.3f},"
+            f" kick-low={alignment.kick_low_at_onset_mean:.3f} vs global-low={alignment.low_band_global_mean:.3f}"
+        )
+
+    if args.no_audio_viz:
+        if als_signals is None:
+            raise ValueError("--no-audio-viz requires --als")
+        energy = AudioEnergy(
+            total=(als_signals.melody_energy + als_signals.bass_energy) * 0.5,
+            low=als_signals.bass_energy,
+            mid=als_signals.melody_energy,
+            high=als_signals.transient_energy,
+        )
+    else:
+        energy = compute_energy(samples, sample_rate, args.fps)
 
     # Get frame index
     frame_idx = int(frame_time * args.fps)
@@ -134,6 +165,8 @@ def render_single_frame(args, input_path: Path) -> int:
         vinyl_offset_x=vinyl_offset_x,
         contrast=contrast,
         show_vinyl=not args.no_vinyl,
+        bg_rgb=getattr(args, "bg_rgb", None),
+        line_rgb=getattr(args, "line_rgb", None),
     )
     print(f"  Using shader: {renderer.bg_shader.name}")
 
@@ -150,8 +183,18 @@ def render_single_frame(args, input_path: Path) -> int:
 
     # Render frame
     print(f"Rendering frame at t={frame_time:.2f}s...")
+    frame_track_signals = None
+    if als_signals is not None and frame_idx < als_signals.track_signals.shape[0]:
+        frame_track_signals = als_signals.track_signals[frame_idx].tolist()
+    if args.no_audio_viz:
+        energy_low = energy_mid = energy_high = 0.0
     frame_data = renderer.render_frame(
-        frame_time, energy_low, energy_mid, energy_high, hue_offset
+        frame_time,
+        energy_low,
+        energy_mid,
+        energy_high,
+        hue_offset,
+        track_signals=frame_track_signals,
     )
 
     # Convert to PIL Image and save (RGBA format, flip for OpenGL)
@@ -285,8 +328,51 @@ def main() -> int:
         default=False,
         help="Hide the vinyl record and render only the background shader",
     )
+    parser.add_argument(
+        "--als",
+        type=str,
+        default=None,
+        help="Optional Ableton Live Set (.als) to drive additional per-track shader signals",
+    )
+    parser.add_argument(
+        "--no-audio-viz",
+        action="store_true",
+        default=False,
+        help="Use ALS-only visualization inputs (ignore audio frequency energy for shader driving)",
+    )
+    parser.add_argument(
+        "--bg-color",
+        type=str,
+        default=None,
+        help="Background color for terrain shader (e.g. white, black)",
+    )
+    parser.add_argument(
+        "--line-color",
+        type=str,
+        default=None,
+        help="Line color for terrain shader (e.g. gold, golden, red)",
+    )
 
     args = parser.parse_args()
+
+    # Theme RGB for terrain: named colors (only used when --shader terrain / Retro Terrain)
+    THEME_COLORS = {
+        "white": (1.0, 1.0, 1.0),
+        "black": (0.0, 0.0, 0.0),
+        "gold": (1.0, 0.84, 0.0),
+        "golden": (1.0, 0.84, 0.0),
+        "red": (1.0, 0.0, 0.0),
+        "green": (0.0, 1.0, 0.0),
+        "blue": (0.0, 0.0, 1.0),
+    }
+    args.bg_rgb = THEME_COLORS.get(args.bg_color.lower()) if args.bg_color else None
+    args.line_rgb = THEME_COLORS.get(args.line_color.lower()) if args.line_color else None
+    if args.bg_color and args.bg_rgb is None:
+        print(f"Error: Unknown --bg-color '{args.bg_color}'", file=sys.stderr)
+        return 1
+    if args.line_color and args.line_rgb is None:
+        print(f"Error: Unknown --line-color '{args.line_color}'", file=sys.stderr)
+        return 1
 
     # Resolve resolution from presets or explicit width/height
     resolution_presets = {
@@ -323,6 +409,20 @@ def main() -> int:
     if not input_path.exists():
         print(f"Error: Input file not found: {args.input}", file=sys.stderr)
         return 1
+
+    if args.no_audio_viz and not args.als:
+        print(
+            "Error: --no-audio-viz requires --als <project.als>",
+            file=sys.stderr,
+        )
+        return 1
+
+    als_path: Path | None = None
+    if args.als is not None:
+        als_path = Path(args.als)
+        if not als_path.exists():
+            print(f"Error: ALS file not found: {args.als}", file=sys.stderr)
+            return 1
 
     # Single frame mode - no FFmpeg needed
     if args.frame is not None:
@@ -385,10 +485,43 @@ def main() -> int:
         track_name = args.name if args.name else input_path.stem
         print(f"  Track name: {track_name}")
 
-        # Compute energy (split into frequency bands)
-        print("Computing audio energy...")
-        energy = compute_energy(samples, sample_rate, args.fps)
-        num_frames = len(energy.total)
+        # Compute visualization energy
+        print("Computing visualization energy...")
+        num_frames = max(1, int(duration * args.fps))
+        als_signals = None
+        if als_path is not None:
+            als_signals = load_ableton_signals(
+                str(als_path),
+                fps=args.fps,
+                num_frames=num_frames,
+                timeline_start_seconds=start_offset,
+            )
+            alignment = analyze_als_audio_alignment(
+                als_signals, samples, sample_rate, args.fps
+            )
+            print(
+                "  ALS alignment:"
+                f" melody~mid corr={alignment.melody_mid_corr:.3f},"
+                f" bass~low corr={alignment.bass_low_corr:.3f},"
+                f" kick-low={alignment.kick_low_at_onset_mean:.3f} vs global-low={alignment.low_band_global_mean:.3f}"
+            )
+            print(
+                f"  ALS tracks: {len(als_signals.track_names)}, notes: {als_signals.note_count}, tempo: {als_signals.tempo_bpm:.2f} BPM"
+            )
+
+        if args.no_audio_viz:
+            if als_signals is None:
+                raise ValueError("--no-audio-viz requires --als")
+            energy = AudioEnergy(
+                total=(als_signals.melody_energy + als_signals.bass_energy) * 0.5,
+                low=als_signals.bass_energy,
+                mid=als_signals.melody_energy,
+                high=als_signals.transient_energy,
+            )
+        else:
+            energy = compute_energy(samples, sample_rate, args.fps)
+
+        num_frames = min(num_frames, len(energy.total))
         print(f"  Frames to render: {num_frames}")
 
         # Get hue offset (from --color or hash of filename)
@@ -433,6 +566,8 @@ def main() -> int:
             vinyl_offset_x=vinyl_offset_x,
             contrast=contrast,
             show_vinyl=not args.no_vinyl,
+            bg_rgb=getattr(args, "bg_rgb", None),
+            line_rgb=getattr(args, "line_rgb", None),
         )
         print(f"  Using shader: {renderer.bg_shader.name}")
 
@@ -488,6 +623,8 @@ def main() -> int:
                 energy_low = energy.low[frame_idx]
                 energy_mid = energy.mid[frame_idx]
                 energy_high = energy.high[frame_idx]
+                if args.no_audio_viz:
+                    energy_low = energy_mid = energy_high = 0.0
 
                 # #region agent log
                 if frame_idx % _log_interval == 0:
@@ -497,8 +634,17 @@ def main() -> int:
                 # #endregion
 
                 # Render frame with frequency band energies
+                frame_track_signals = None
+                if als_signals is not None and frame_idx < als_signals.track_signals.shape[0]:
+                    frame_track_signals = als_signals.track_signals[frame_idx].tolist()
+
                 frame_data = renderer.render_frame(
-                    time, energy_low, energy_mid, energy_high, hue_offset
+                    time,
+                    energy_low,
+                    energy_mid,
+                    energy_high,
+                    hue_offset,
+                    track_signals=frame_track_signals,
                 )
 
                 # Flip vertically for correct video orientation (OpenGL is bottom-to-top)

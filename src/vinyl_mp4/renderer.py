@@ -332,6 +332,8 @@ class VinylRenderer:
         vinyl_offset_x: float = 0.0,
         contrast: float = 1.0,
         show_vinyl: bool = True,
+        bg_rgb: tuple[float, float, float] | None = None,
+        line_rgb: tuple[float, float, float] | None = None,
     ):
         """Initialize the renderer with given dimensions.
 
@@ -343,12 +345,16 @@ class VinylRenderer:
             vinyl_offset_x: Horizontal offset in vinyl radii (-1.0 to 1.0).
             contrast: Color contrast level (0.7-1.3), only used by FBM Warp shader.
             show_vinyl: Whether to render the vinyl record overlay.
+            bg_rgb: Optional background color (R,G,B 0-1) for terrain theme.
+            line_rgb: Optional line color (R,G,B 0-1) for terrain theme.
         """
         self.width = width
         self.height = height
         self.vinyl_scale = vinyl_scale
         self.vinyl_offset_x = vinyl_offset_x
         self.contrast = contrast
+        self.bg_rgb = bg_rgb
+        self.line_rgb = line_rgb
         self.show_vinyl = show_vinyl
         self.frame_size = width * height * 4  # RGBA
 
@@ -479,6 +485,7 @@ class VinylRenderer:
         energy_mid: float,
         energy_high: float,
         hue_offset: float,
+        track_signals: list[float] | None = None,
     ) -> bytes:
         """Render a single frame.
 
@@ -488,6 +495,7 @@ class VinylRenderer:
             energy_mid: Mid frequency energy level (0.0-1.0).
             energy_high: High frequency (treble) energy level (0.0-1.0).
             hue_offset: Hue rotation for background colors (0.0-1.0).
+            track_signals: Optional per-track signed ALS values for the current frame.
 
         Returns:
             Raw RGBA pixel data as bytes.
@@ -496,6 +504,11 @@ class VinylRenderer:
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
         # Render background using shader class
+        kwargs: dict = {}
+        if self.bg_rgb is not None:
+            kwargs["bg_rgb"] = self.bg_rgb
+        if self.line_rgb is not None:
+            kwargs["line_rgb"] = self.line_rgb
         self.bg_shader.set_uniforms(
             self.bg_program,
             time,
@@ -505,6 +518,8 @@ class VinylRenderer:
             hue_offset,
             (self.width, self.height),
             self.contrast,
+            track_signals,
+            **kwargs,
         )
         self.bg_vao.render(moderngl.TRIANGLE_STRIP)
 

@@ -93,6 +93,8 @@ Or pass `--width` and `--height` directly to override presets.
 | `--frame SECONDS` | Render a single frame to PNG instead of video |
 | `--shader NAME` | Background shader (see below) |
 | `--color NAME` | Base color: red, orange, yellow, lime, green, teal, cyan, sky, blue, indigo, purple, violet, magenta, pink |
+| `--als PATH` | Optional Ableton `.als` file to feed per-track MIDI note signals to shaders |
+| `--no-audio-viz` | Use ALS-only visualization inputs (requires `--als`) |
 
 ### Shaders
 
@@ -125,6 +127,9 @@ uv run vinyl-mp4 song.mp3 --name "My Track" --rim-text "SIDE A"
 
 # Pick shader + color
 uv run vinyl-mp4 song.mp3 --shader terrain --color cyan
+
+# Drive visualization from Ableton MIDI tracks only
+uv run vinyl-mp4 song.flac --als media/hey.als --no-audio-viz --shader terrain
 
 # Quick frame preview
 uv run vinyl-mp4 song.mp3 --frame 5.5 -o preview.png

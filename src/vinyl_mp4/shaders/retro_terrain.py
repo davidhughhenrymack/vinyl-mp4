@@ -32,6 +32,10 @@ uniform float u_energy_high;  // Hi-hat/treble (0-1) - shape evolution / warp
 uniform float u_energy_avg;   // Moving average of total energy (0-1) - camera tilt
 uniform float u_progress;     // Playback progress (0-1) - line reveal
 uniform float u_hue_offset;   // Randomized hue offset (0-1)
+uniform vec3 u_bg_rgb;        // Background color (when theme used)
+uniform vec3 u_line_rgb;      // Line color; .x < 0 means use hue
+uniform int u_track_signal_count;
+uniform float u_track_signals[64];
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -150,13 +154,32 @@ void main()
 
     for (int i = 0; i < 24; ++i)
     {
+        float lineSignal = 0.0;
+        if (u_track_signal_count > 0) {
+            // Proportional buckets: line i maps to track (i * trackCount) / lineCount
+            // so all tracks get lines and blocks stay contiguous.
+            const int lineCount = 24;
+            int signalIndex = (i * u_track_signal_count) / lineCount;
+            signalIndex = min(signalIndex, u_track_signal_count - 1);
+            lineSignal = u_track_signals[signalIndex];
+        }
+        float melodySignal = max(lineSignal, 0.0);
+        float bassSignal = max(-lineSignal, 0.0);
+
         // Line threshold: back (i=23) → 0.0, front (i=0) → 1.0
         float lineThresh = 1.0 - float(i) / 23.0;
-        // Smooth fade-in: each line fades from 0→1 over a small window
-        float lineAlpha = smoothstep(lineThresh - 0.08, lineThresh, reveal);
+        // Hard reveal: each line switches on abruptly for a crisp mask edge.
+        float lineAlpha = step(lineThresh, reveal);
 
         // shapeEvolve shifts noise coords so treble morphs the terrain surface
-        pos = vec4(p.x, heightScale * fbm4(0.5 * vec2(eye.x + p.x + shapeEvolve, z + off)), eye.z + z, 1.0);
+        float lineHeightScale = heightScale + 0.35 * melodySignal + 0.25 * bassSignal;
+        float lineShapeEvolve = shapeEvolve + 0.20 * melodySignal - 0.10 * bassSignal;
+        pos = vec4(
+            p.x,
+            lineHeightScale * fbm4(0.5 * vec2(eye.x + p.x + lineShapeEvolve, z + off)),
+            eye.z + z,
+            1.0
+        );
         float h = (vpmat * pos).y - p.y;
         if (h > lh)
         {
@@ -170,17 +193,23 @@ void main()
             vec3 bloom = vec3( d < bloomWidth ? smoothstep(1.0, 0.0, d / bloomWidth) : 0.0 );
             bloom *= fade * 0.15;
             bloomAcc += bloom;
-            lh = h;
+            // Only advance depth when this line is revealed, so unrevealed lines don't mask revealed ones
+            if (lineAlpha > 0.0) lh = h;
         }
         z += zi;
     }
 
-    // Tint lines using hue offset, apply mid-frequency brightness
-    vec3 lineColor = hsv2rgb(vec3(u_hue_offset, 0.7, 1.0));
-    vec3 col = (sqrt(clamp(acc, 0.0, 1.0)) + clamp(bloomAcc, 0.0, 1.0)) * lineColor * brightness;
-
-    // Pure black background
-    fragColor = vec4(col, 1.0);
+    // Line color: custom u_line_rgb when .x >= 0, else hue-based
+    vec3 lineColor = (u_line_rgb.x >= 0.0)
+        ? u_line_rgb
+        : hsv2rgb(vec3(u_hue_offset, 0.7, 1.0));
+    // Combined line + bloom intensity clamped to 1 so we never exceed line color when blending to bg.
+    // Bloom then only softens the edge (alpha falloff) and works on any background.
+    float core = sqrt(clamp(acc.r, 0.0, 1.0));
+    float bloom = clamp(bloomAcc.r, 0.0, 1.0);  // bloomAcc is grayscale
+    float intensity = min(1.0, core + bloom);
+    vec3 linePart = lineColor * brightness * intensity;
+    fragColor = vec4(mix(u_bg_rgb, linePart, intensity), 1.0);
 }
 """
 
@@ -224,6 +253,10 @@ class RetroTerrainShader(BaseShader):
         hue_offset: float,
         resolution: tuple[int, int],
         contrast: float = 1.0,
+        track_signals: list[float] | None = None,
+        *,
+        bg_rgb: tuple[float, float, float] | None = None,
+        line_rgb: tuple[float, float, float] | None = None,
     ) -> None:
         """Set shader uniforms (contrast is ignored for Retro Terrain)."""
         # Update exponential moving average of total energy
@@ -238,3 +271,11 @@ class RetroTerrainShader(BaseShader):
         program["u_energy_avg"].value = self._energy_avg
         program["u_progress"].value = self.progress
         program["u_hue_offset"].value = hue_offset
+        program["u_bg_rgb"].value = bg_rgb if bg_rgb is not None else (0.0, 0.0, 0.0)
+        # Sentinel: line_rgb.x < 0 in shader means use hue-based color
+        program["u_line_rgb"].value = line_rgb if line_rgb is not None else (-1.0, 0.0, 0.0)
+        max_track_signals = 64
+        values = list(track_signals or [])[:max_track_signals]
+        padded = values + [0.0] * (max_track_signals - len(values))
+        program["u_track_signal_count"].value = len(values)
+        program["u_track_signals"].value = tuple(float(v) for v in padded)

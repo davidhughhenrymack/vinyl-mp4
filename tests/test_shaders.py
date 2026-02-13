@@ -382,5 +382,7 @@ class TestRetroTerrainShader:
             assert "u_energy_mid" in program
             assert "u_energy_high" in program
             assert "u_hue_offset" in program
+            assert "u_track_signal_count" in program
+            assert "u_track_signals" in program
         finally:
             ctx.release()

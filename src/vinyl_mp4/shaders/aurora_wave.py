@@ -167,6 +167,8 @@ class AuroraWaveShader(BaseShader):
         hue_offset: float,
         resolution: tuple[int, int],
         contrast: float = 1.0,
+        track_signals: list[float] | None = None,
+        **kwargs: object,
     ) -> None:
         """Set shader uniforms (contrast is ignored for Aurora Wave)."""
         program["u_time"].value = time
