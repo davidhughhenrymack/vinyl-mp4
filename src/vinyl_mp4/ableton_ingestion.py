@@ -19,6 +19,8 @@ class AbletonSignals:
     """Frame-aligned note signals derived from an ALS file."""
 
     track_names: list[str]
+    track_volumes: list[float]  # ALS mixer volume value per track
+    track_note_counts: list[int]  # MIDI note events discovered per track
     track_signals: np.ndarray  # shape: (num_frames, num_tracks), values in [-1, 1]
     melody_energy: np.ndarray  # shape: (num_frames,), values in [0, 1]
     bass_energy: np.ndarray  # shape: (num_frames,), values in [0, 1]
@@ -72,6 +74,13 @@ def _extract_tempo_bpm(root: ET.Element) -> float:
     return tempo_bpm
 
 
+def _extract_track_volume(track: ET.Element) -> float:
+    volume_node = track.find(".//DeviceChain/Mixer/Volume/Manual")
+    if volume_node is None or volume_node.get("Value") is None:
+        raise ValueError("ALS parsing error: could not find track mixer volume")
+    return float(volume_node.get("Value"))
+
+
 def load_ableton_signals(
     als_path: str,
     fps: int,
@@ -97,12 +106,16 @@ def load_ableton_signals(
     seconds_per_beat = 60.0 / tempo_bpm
 
     track_names: list[str] = []
+    track_volumes: list[float] = []
+    track_note_counts: list[int] = []
     per_track_series: list[np.ndarray] = []
     note_count = 0
 
     for track in root.findall(".//Tracks/MidiTrack"):
         current_track_name = _track_name(track)
+        current_track_volume = _extract_track_volume(track)
         track_series = np.zeros(num_frames, dtype=np.float32)
+        current_track_note_count = 0
         track_pitches: list[int] = []
         for key_track in track.findall(".//KeyTracks/KeyTrack"):
             midi_key = key_track.find("./MidiKey")
@@ -153,9 +166,12 @@ def load_ableton_signals(
                     signed_magnitude = magnitude if pitch >= pitch_split else -magnitude
                     track_series[start_frame : end_frame + 1] += signed_magnitude
                     note_count += 1
+                    current_track_note_count += 1
 
         if np.any(track_series):
             track_names.append(current_track_name)
+            track_volumes.append(current_track_volume)
+            track_note_counts.append(current_track_note_count)
             per_track_series.append(np.clip(track_series, -1.0, 1.0))
             if len(per_track_series) >= max_tracks:
                 break
@@ -170,6 +186,8 @@ def load_ableton_signals(
 
     return AbletonSignals(
         track_names=track_names,
+        track_volumes=track_volumes,
+        track_note_counts=track_note_counts,
         track_signals=track_signals,
         melody_energy=melody_energy,
         bass_energy=bass_energy,

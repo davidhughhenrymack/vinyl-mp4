@@ -39,6 +39,16 @@ from vinyl_mp4.shaders import (
 )
 
 
+def _print_als_track_summary(als_signals) -> None:
+    print("  ALS track summary (volume, MIDI notes):")
+    for name, volume, note_count in zip(
+        als_signals.track_names,
+        als_signals.track_volumes,
+        als_signals.track_note_counts,
+    ):
+        print(f"    - {name}: volume={volume:.3f}, notes={note_count}")
+
+
 def render_single_frame(args, input_path: Path) -> int:
     """Render a single frame to PNG for testing.
 
@@ -99,6 +109,10 @@ def render_single_frame(args, input_path: Path) -> int:
             f" bass~low corr={alignment.bass_low_corr:.3f},"
             f" kick-low={alignment.kick_low_at_onset_mean:.3f} vs global-low={alignment.low_band_global_mean:.3f}"
         )
+        print(
+            f"  ALS tracks: {len(als_signals.track_names)}, notes: {als_signals.note_count}, tempo: {als_signals.tempo_bpm:.2f} BPM"
+        )
+        _print_als_track_summary(als_signals)
 
     if args.no_audio_viz:
         if als_signals is None:
@@ -361,6 +375,7 @@ def main() -> int:
         "black": (0.0, 0.0, 0.0),
         "gold": (1.0, 0.84, 0.0),
         "golden": (1.0, 0.84, 0.0),
+        "orange": (1.0, 0.5, 0.0),
         "red": (1.0, 0.0, 0.0),
         "green": (0.0, 1.0, 0.0),
         "blue": (0.0, 0.0, 1.0),
@@ -508,6 +523,7 @@ def main() -> int:
             print(
                 f"  ALS tracks: {len(als_signals.track_names)}, notes: {als_signals.note_count}, tempo: {als_signals.tempo_bpm:.2f} BPM"
             )
+            _print_als_track_summary(als_signals)
 
         if args.no_audio_viz:
             if als_signals is None:
